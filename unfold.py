@@ -88,33 +88,6 @@ def compare_cylinder_sphere(c: Part.Cylinder, s: Part.Sphere) -> bool:
 
 
 def is_faces_tangent(f1: Part.Face, f2: Part.Face) -> bool:
-    # if both faces are planar, check that they have similar plane surfaces
-    #      ┌───────┐
-    #      │       │
-    #    ┌───────────┐
-    # ┌─ │   Plane   │ ─┐
-    # │  └───────────┘  │
-    # │    │            │
-    # │    │            │
-    # │    │            │
-    # │  ┌───────────┐  │
-    # │  │   Cone    │ ─┼────┐
-    # │  └───────────┘  │    │
-    # │    │            │    │
-    # │    │            │    │
-    # │    │            │    │
-    # │  ┌───────────┐  │    │
-    # │  │ Cylinder  │ ─┘    │
-    # │  └───────────┘       │
-    # │    │                 │
-    # │    │                 │
-    # │    │                 │
-    # │  ┌───────────┐       │
-    # └─ │ Extrusion │ ──────┘
-    #    └───────────┘
-    #      │       │
-    #      └───────┘
-
     match f1.Surface.TypeId:
         case "Part::GeomPlane":
             match f2.Surface.TypeId:
@@ -215,101 +188,12 @@ def is_faces_tangent(f1: Part.Face, f2: Part.Face) -> bool:
         case _:
             return False
 
-    #
-    # if isinstance(f1.Surface, Part.Plane):
-    #     if isinstance(f2.Surface, Part.Plane):
-    #         return compare_plane_plane(f1.Surface, f2.Surface)
-    #     if isinstance(f2.Surface, Part.Cylinder):
-    #         return compare_plane_cylinder(f1.Surface, f2.Surface)
-    # if isinstance(f1.Surface, Part.Cylinder):
-    #     if isinstance(f2.Surface, Part.Plane):
-    #         return compare_plane_cylinder(f2.Surface, f1.Surface)
-    # return False
-
-
-# class node:
-#     def __init__(self, index: int, shp: Part.Face):
-#         self.index = index
-#         self.shp = shp
-#
-#
-# class edge:
-#     def __init__(self, n1: node, n2: node):
-#         self.nodes = {n1, n2}  # undirected edge
-#
-#
-# def faces_have_shared_edge(f1: Part.Face, f2: Part.Face) -> bool:
-#     return bool({x.hashCode() for x in f1.Edges} & {x.hashCode() for x in f2.Edges})
-
-#
-# class graph:
-#     def __init__(self, nodes: list[node], edges: list[edge]):
-#         self.nodes = nodes
-#         self.edges = edges
-#
-#     def __repr__(self):
-#         return f"<graph with {len(self.nodes)} nodes and {len(self.edges)} edges>"
-#
-#     @classmethod
-#     def from_shape(cls, shp: Part.Shape) -> Self:
-#         list_of_nodes = []
-#         for i, face in enumerate(shp.Faces):
-#             list_of_nodes.append(node(i, face))
-#         list_of_edges = []
-#
-#         candidates = [shp.ancestorsOfType(e, Part.Face) for e in shp.Edges]
-#         face_hashes = [f.hashCode() for f in shp.Faces]
-#         index_lookup = {h: i for i, h in enumerate(face_hashes)}
-#         # filter to remove seams on cylinders or other faces that wrap back onto themselves
-#         for face_a, face_b in filter(lambda c: len(c) == 2, candidates):
-#             if is_faces_tangent(face_a, face_b):
-#                 node1 = list_of_nodes[index_lookup[face_a.hashCode()]]
-#                 node2 = list_of_nodes[index_lookup[face_b.hashCode()]]
-#                 list_of_edges.append(edge(node1, node2))
-#
-#         # for n1, n2 in combinations(list_of_nodes, 2):
-#         #     if faces_have_shared_edge(n1.shp, n2.shp) and is_faces_tangent(n1.shp, n2.shp):
-#         #             list_of_edges.append(edge(n1, n2))
-#         return cls(list_of_nodes, list_of_edges)
-#
-#     def to_graphviz(self) -> str:
-#         # get connected components of the graph
-#         gr = nx.Graph()
-#         for e in self.edges:
-#             gr.add_edge(tuple(e.nodes)[0].index, tuple(e.nodes)[1].index)
-#         components = list(nx.connected_components(gr))
-#         # print({n: sum(1 for c in nx.find_cliques(gr) if n in c) for n in gr})
-#         # print(components)
-#         graph_coloring = []
-#         for color, component in zip(cycle(range(1, 11)), components):
-#             for n in component:
-#                 graph_coloring.append(f"    {n} [color={color}];\n")
-#
-#         # return nx.nx_pydot.to_pydot(gr)
-#
-#         return (
-#             "graph {\n"
-#             + "    node [colorscheme=spectral10];\n"
-#             + "".join(graph_coloring)
-#             + "".join(
-#                 [
-#                     f"    {tuple(e.nodes)[0].index} -- {tuple(e.nodes)[1].index};\n"
-#                     for e in self.edges
-#                 ]
-#             )
-#             + "}\n"
-#         )
-
 
 def fast_nx_graph_build(shp: Part.Shape, root: int):
     # created a simple undirected graph object
     gr = nx.Graph()
-    # faces are hashable objects that can be used as nodes directly
-    # (the .__hash__() method and also equivalent .hashCode() are available for shapes)
-    # we don't even have to add the shape's faces to the graph, nodes are implicitly
-    # created along with edges
 
-    # weird shape mutability nonsense? -> have to use indexes
+    # weird shape mutability nonsense? -> have to use indexes, because the underlying geometry may get changed around while building the graph
 
     face_hashes = [f.hashCode() for f in shp.Faces]
     index_lookup = {h: i for i, h in enumerate(face_hashes)}
@@ -318,11 +202,9 @@ def fast_nx_graph_build(shp: Part.Shape, root: int):
     candidates = [
         (i, shp.ancestorsOfType(e, Part.Face)) for i, e in enumerate(shp.Edges)
     ]
-    # from pprint import pprint
-    # pprint(candidates)
     # filter to remove seams on cylinders or other faces that wrap back onto themselves
     # other than self-adjacent faces, edges should always have 2 face ancestors
-    # this assumption is only valid for watertight solids though
+    # this assumption is probably only valid for watertight solids.
     for edge_index, faces in filter(lambda c: len(c[1]) == 2, candidates):
         face_a, face_b = faces
         if is_faces_tangent(face_a, face_b):
@@ -339,27 +221,21 @@ def fast_nx_graph_build(shp: Part.Shape, root: int):
     )
 
 
-# print(graph.from_shape(FreeCAD.Gui.Selection.getSelection()[0].Shape).to_graphviz())
-# with open("/home/alex/test.dot", 'w') as f:
 selection_object = FreeCAD.Gui.Selection.getCompleteSelection()[0]
 shp = selection_object.Object.Shape
 root_face = int(selection_object.SubElementNames[0][4:]) - 1
-# root_face = shp.Faces[67]
-# root_face = 67
+
 graph_of_sheet_faces = fast_nx_graph_build(shp, root_face)
-# use the edge labels (shape indices) as the weight for finding the spanning tree
-# is the code still deterministic if no weights are provided? Is it faster?
+
+# we could also get a random spanning tree here. Would that be faster?
+# Or is it better to take the opportunity to get a spanning tree that meets some criteria for optimality?
+# I.E.: the shorter the longest path in the tree, the fewer nested transformations we have to compute
 spanning_tree = nx.minimum_spanning_tree(graph_of_sheet_faces, weight="label")
-# is this faster?
-# spanning_tree = nx.random_spanning_tree(graph_of_sheet_faces, seed=shp.hashCode())
-# spanning_tree = T = nx.minimum_spanning_arborescence(graph_of_sheet_faces, attr="label")  # does not work on non-directed graphs
-# print(str(nx.nx_pydot.to_pydot(spanning_tree)))
 
 # convert to directed tree
 dg = nx.DiGraph()
 for node in spanning_tree:
     # color the nodes nicely (for debugging)
-    # print(f"{node=}")
     dg.add_node(
         node,
         color={
@@ -367,11 +243,11 @@ for node in spanning_tree:
             "Part::GeomCylinder": "blue",
         }[shp.Faces[node].Surface.TypeId],
     )
-# dg.add_nodes_from(spanning_tree.nodes)
+
 lengths = nx.all_pairs_shortest_path_length(spanning_tree)
 ll = {k: kv for k, kv in lengths}
 to_root = ll[root_face]
-# from pprint import pprint
+
 for f1, f2, edata in spanning_tree.edges(data=True):
     if to_root[f1] <= to_root[f2]:
         dg.add_edge(f1, f2, label=edata["label"])
@@ -384,6 +260,7 @@ print(str(nx.nx_pydot.to_pydot(dg)))
 
 
 class UVRef(Enum):
+    # reference corner for a rectangular-ish surface patch
     BOTTOM_LEFT = auto()
     BOTTOM_RIGHT = auto()
     TOP_LEFT = auto()
@@ -415,27 +292,6 @@ def unroll_cylinder(
     l3 = Part.makeLine(v3, v4)
     l4 = Part.makeLine(v4, v1)
     return Part.makeFace(Part.Wire([l1, l2, l3, l4]), "Part::FaceMakerSimple")
-
-
-#  "a.cross(b)"
-#
-#      ┌─────────────────┐
-#      │        a        │
-#      ├──┬──┬──┬──┬──┬──┤
-#      │ x│ y│ z│-x│-y│-z│
-# ┌─┬──┼──┼──┼──┼──┼──┼──┤
-# │ │ x│ 0│-z│ y│ 0│ z│-y│
-# │ ├──┼──┼──┼──┼──┼──┼──┤
-# │ │ y│ z│ 0│-x│-z│ 0│ x│
-# │ ├──┼──┼──┼──┼──┼──┼──┤
-# │ │ z│-y│ x│ 0│ y│-x│ 0│
-# │b├──┼──┼──┼──┼──┼──┼──┤
-# │ │-x│ 0│ z│-y│ 0│-z│ y│
-# │ ├──┼──┼──┼──┼──┼──┼──┤
-# │ │-y│-z│ 0│ x│ z│ 0│-x│
-# │ ├──┼──┼──┼──┼──┼──┼──┤
-# │ │-z│ y│-x│ 0│-y│ x│ 0│
-# └─┴──┴──┴──┴──┴──┴──┴──┘
 
 
 def compute_unbend_transform(
@@ -504,7 +360,7 @@ def compute_unbend_transform(
             lcs_base_point = corner_2
     # lcs_base_point = base_edge.CenterOfGravity
 
-    # y_vector_possibly_woring_direction = base_edge.Curve.Direction
+    # y_vector_possibly_wrong_direction = base_edge.Curve.Direction
     # the z-axis of our desired reference coordinate system is the normal vector of the stationary planar face:
     # don't rely on p1.Surface.Axis here, as it may be flipped relative to the actual face
     # z_axis = p1.Surface.Axis
@@ -562,21 +418,6 @@ def compute_unbend_transform(
     )
     obj = FreeCAD.ActiveDocument.addObject("PartDesign::CoordinateSystem", "test_cs")
     obj.Placement = Placement(alignment_transform)
-    # Part.show(p2.transformed(inverse_align, True), "aligned_to_origin")
-    # Part.show(Part.Vertex(lcs_base_point + z_axis.normalize()*radius), "rotaion_base_vertex")
-    # Part.show(Part.Vertex(lcs_base_point + z_axis.normalize()*radius + y_axis.cross(z_axis)), "rotation_dir_vertex")
-
-    # for i in range(10):
-    #     obj = FreeCAD.ActiveDocument.addObject('PartDesign::CoordinateSystem',f'aligned_cs_{i}')
-    #     rot = Rotation(Vector(1,0,0),degrees(bend_angle)*(i+1)/10).toMatrix()
-    #     translate = Matrix(
-    #         1,0,0,0,
-    #         0,1,0,0,
-    #         0,0,1,radius,
-    #         0,0,0,1,
-    #     )
-    #     aligned_pl = Placement(alignment_transform*translate*rot*translate.inverse())
-    #     obj.Placement = aligned_pl
 
     rot = Rotation(Vector(1, 0, 0), -1 * degrees(bend_angle)).toMatrix()
     translate = Matrix(
