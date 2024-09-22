@@ -11,7 +11,7 @@ import Part
 import unfold
 from unittest import TestCase
 from FreeCAD import Vector
-
+from math import sqrt
 
 # used when comparing positions in 3D space
 eps = FreeCAD.Base.Precision.approximation()
@@ -95,3 +95,14 @@ class TestIsFacesTangent(TestCase):
 
         self.assertTrue(unfold.is_faces_tangent(s1, s2))
         self.assertFalse(unfold.is_faces_tangent(s1, s3))
+
+
+class TestUnrollCylinder(TestCase):
+    def test_unroll_simple_face(self):
+        arc = Part.Arc(
+            Vector(0, 0, 0),
+            Vector(sqrt(2) / 2 * 10, 0, 10 - sqrt(2) / 2 * 10),
+            Vector(10, 0, 10),
+        ).toShape()
+        face = arc.extrude(Vector(0, 10, 0))
+        self.assertTrue(face is not None)
