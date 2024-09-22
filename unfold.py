@@ -4,7 +4,7 @@ import networkx as nx
 from FreeCAD import Vector, Matrix, Rotation, Placement
 from math import radians, degrees, log10
 from enum import Enum, auto
-from statistics import mode
+from statistics import mode, StatisticsError
 from itertools import combinations
 from functools import reduce
 from operator import mul as multiply_operator
@@ -24,7 +24,7 @@ def estimate_thickness_from_cylinders(shp: Part.Shape) -> float:
     num_places = abs(int(log10(eps)))
     curv_map = {}
     for face in shp.Faces:
-        if isinstance(face.Surface, Part.Cylinder):
+        if face.Surface.TypeId == "Part::GeomCylinder":
             # normalize the axis and centerpoint
             normalized_axis = face.Surface.Axis.normalize()
             if normalized_axis.dot(FreeCAD.Vector(0, 0, -1)) < 0:
@@ -47,7 +47,31 @@ def estimate_thickness_from_cylinders(shp: Part.Shape) -> float:
             for r1, r2 in combinations(radset, 2):
                 if (val := abs(r1 - r2)) > eps:
                     combined_list_of_thicknesses.append(val)
-    return mode(combined_list_of_thicknesses)
+    try:
+        thickness_value = mode(combined_list_of_thicknesses)
+        return thickness_value
+    except StatisticsError:
+        return 0.0
+
+
+def estimate_thickness_from_face(shape: Part.Shape, selected_face: int) -> float:
+    ref_face = shape.Faces[selected_face]
+    # find all planar faces that are parallel to the chosen face
+    candidates = [
+        f
+        for f in shape.Faces
+        if f.hashCode() != ref_face.hashCode()
+        and f.Surface.TypeId == "Part::GeomPlane"
+        and ref_face.Surface.Axis.isParallel(f.Surface.Axis, eps_angular)
+    ]
+    if not candidates:
+        return 0.0
+    opposite_face = sorted(candidates, key=lambda x: abs(x.Area - ref_face.Area))[0]
+    return abs(
+        opposite_face.valueAt(0, 0).distanceToPlane(
+            ref_face.Surface.Position, ref_face.Surface.Axis
+        )
+    )
 
 
 # Possible values of x in 'isinstance(some_sub_shape.Surface, x)'
@@ -332,8 +356,10 @@ def compute_unbend_transform(
     # for cylindrical surfaces:
     # the surface of the outside of a tube ('convex') is always forward-oriented
     # the surface of the inside of a tube ('concave') is always reverse-oriented
-    # bend_direction = {"Reversed": "Up", "Forward": "Down"}[bent_face.Orientation]
-    # the reference edge should intersect with the bent cylindrical surface at either the start or end of the cylinders u-parameter range. We need to determine wich of these possibilities is correct
+    bend_direction = {"Reversed": "Up", "Forward": "Down"}[bent_face.Orientation]
+    if bend_direction == "Down":
+        bend_angle = -1 * bend_angle
+    # the reference edge should intersect with the bent cylindrical surface at either the start or end of the cylinders u-parameter range. We need to determine which of these possibilities is correct
     first_corner_point = bent_face.valueAt(umin, vmin)
     second_corner_point = bent_face.valueAt(umax, vmin)
     # at least one of these points should be on the starting edge
@@ -385,45 +411,21 @@ def compute_unbend_transform(
     # the actual unbend transformation is found by reversing the rotation of
     # the p2 face due to bending, then pushing it forward according to the bend allowance
     bend_allowance = (radius + k_factor * thickness) * bend_angle
+    # fmt: off
     allowance_transform = Matrix(
-        1,
-        0,
-        0,
-        0,
-        0,
-        1,
-        0,
-        bend_allowance,
-        0,
-        0,
-        1,
-        0,
-        0,
-        0,
-        0,
-        1,
+        1, 0, 0, 0,
+        0, 1, 0, bend_allowance,
+        0, 0, 1, 0,
+        0, 0, 0, 1
     )
-
     rot = Rotation(Vector(1, 0, 0), -1 * degrees(bend_angle)).toMatrix()
     translate = Matrix(
-        1,
-        0,
-        0,
-        0,
-        0,
-        1,
-        0,
-        0,
-        0,
-        0,
-        1,
-        radius,
-        0,
-        0,
-        0,
-        1,
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        0, 0, 1, radius,
+        0, 0, 0, 1
     )
-
+    # fmt: on
     # compose transformations to get the final matrix
     overall_transform = Matrix()
     overall_transform.transform(Vector(), alignment_transform.inverse())
@@ -438,7 +440,10 @@ def unfold(shape: Part.Shape, root_face_index: int, k_factor: int = 0.5) -> Part
     graph_of_sheet_faces = build_graph_of_tangent_faces(shp, root_face)
 
     thickness = estimate_thickness_from_cylinders(shape)
-
+    if not thickness:
+        thickness = estimate_thickness_from_face(shape, root_face_index)
+    if not thickness:
+        raise RuntimeError("Couldn't estimate thickness for shape!")
     # we could also get a random spanning tree here. Would that be faster?
     # Or is it better to take the opportunity to get a spanning tree that meets
     # some criteria for minimization?
