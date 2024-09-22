@@ -332,27 +332,6 @@ def compute_unbend_transform(
     k_factor = 0.5
     thickness = 2.0
     bend_allowance = (radius + k_factor * thickness) * bend_angle
-    # this transformation corresponds to a rotation about a copy of the y-axis,
-    # translated in the z direction by the value of the bend radius
-    # unrotate_transform = Matrix(
-    #     cos(bend_angle),
-    #     0,
-    #     -1 * sin(bend_angle),
-    #     radius * sin(bend_angle),
-    #     0,
-    #     1,
-    #     0,
-    #     0,
-    #     sin(bend_angle),
-    #     0,
-    #     cos(bend_angle),
-    #     -1 * radius * cos(bend_angle) + radius,
-    #     0,
-    #     0,
-    #     0,
-    #     1,
-    # )
-    # this one is just a translation forward in the reference coordinate system's x-direction
     allowance_transform = Matrix(
         1,
         0,
