@@ -2,14 +2,14 @@ import FreeCAD
 import Part
 import networkx as nx
 from FreeCAD import Vector, Matrix, Rotation, Placement
-from math import sin, cos, radians, degrees
+from math import radians, degrees
 from enum import Enum, auto
 
 
-eps = (
-    FreeCAD.Base.Precision.approximation()
-)  # used when comapring positions in 3D space
-eps_angular = FreeCAD.Base.Precision.angular()  # used when comparing angles
+# used when comparing positions in 3D space
+eps = FreeCAD.Base.Precision.approximation()
+# used when comparing angles
+eps_angular = FreeCAD.Base.Precision.angular()
 
 
 # Possible values of x in 'isinstance(some_sub_shape.Surface, x)'
@@ -27,7 +27,8 @@ PartSurface = (
 
 
 def compare_plane_plane(p1: Part.Plane, p2: Part.Plane) -> bool:
-    # returns True if the two planes have similar normals and the base point of the first plane is (nearly) coincident with the second plane
+    # returns True if the two planes have similar normals and the base
+    # point of the first plane is (nearly) coincident with the second plane
     return (
         p1.Axis.isParallel(p2.Axis, eps_angular)
         and p1.Position.distanceToPlane(p2.Position, p2.Axis) < eps
@@ -35,7 +36,8 @@ def compare_plane_plane(p1: Part.Plane, p2: Part.Plane) -> bool:
 
 
 def compare_plane_cylinder(p: Part.Plane, c: Part.Cylinder) -> bool:
-    # returns True if the cylinder is tangent to the plane (there is 'line contact' between the surfaces)
+    # returns True if the cylinder is tangent to the plane
+    # (there is 'line contact' between the surfaces)
     return (
         p.Axis.isNormal(c.Axis, eps_angular)
         and abs(abs(c.Center.distanceToPlane(p.Position, p.Axis)) - c.Radius) < eps
@@ -43,7 +45,8 @@ def compare_plane_cylinder(p: Part.Plane, c: Part.Cylinder) -> bool:
 
 
 def compare_cylinder_cylinder(c1: Part.Cylinder, c2: Part.Cylinder) -> bool:
-    # returns True if the two cylinders have parallel axis' and those axis are seperated by a distance of approximately r1 + r2
+    # returns True if the two cylinders have parallel axis' and those axis
+    # are seperated by a distance of approximately r1 + r2
     return (
         c1.Axis.isParallel(c2.Axis, eps_angular)
         and abs(c1.Center.distanceToLine(c2.Center, c2.Axis) - (c1.Radius + c2.Radius))
@@ -62,10 +65,13 @@ def compare_cylinder_torus(c: Part.Cylinder, t: Part.Toroid) -> bool:
     return (
         c.Axis.isParallel(t.Axis, eps_angular)
         and c.Center.distanceToLine(t.Center, t.Axis) < eps
-        and abs(c.Radius - abs(t.MajorRadius - t.MinorRadius)) < eps
+        and (
+            abs(c.Radius - abs(t.MajorRadius - t.MinorRadius)) < eps
+            or abs(c.Radius - abs(t.MajorRadius + t.MinorRadius)) < eps
+        )
     ) or (
         c.Axis.isNormal(t.Axis, eps_angular)
-        and abs(t.Center.distanceToLine(c.Center, c.Axis)) < eps
+        and abs(abs(t.Center.distanceToLine(c.Center, c.Axis)) - t.MajorRadius) < eps
         and abs(c.Radius - t.MinorRadius) < eps
     )
 
@@ -126,7 +132,7 @@ def is_faces_tangent(f1: Part.Face, f2: Part.Face) -> bool:
                 case "Part::GeomPlane":
                     return compare_plane_torus(f2.Surface, f1.Surface)
                 case "Part::GeomCylinder":
-                    return False
+                    return compare_cylinder_torus(f2.Surface, f1.Surface)
                 case "Part::GeomToroid":
                     return False
                 case "Part::GeomSphere":
@@ -189,7 +195,7 @@ def is_faces_tangent(f1: Part.Face, f2: Part.Face) -> bool:
             return False
 
 
-def fast_nx_graph_build(shp: Part.Shape, root: int):
+def build_graph_of_tangent_faces(shp: Part.Shape, root: int):
     # created a simple undirected graph object
     gr = nx.Graph()
 
@@ -219,44 +225,6 @@ def fast_nx_graph_build(shp: Part.Shape, root: int):
     raise RuntimeError(
         "Couldn't find a network of useable faces from the chosen seed face"
     )
-
-
-selection_object = FreeCAD.Gui.Selection.getCompleteSelection()[0]
-shp = selection_object.Object.Shape
-root_face = int(selection_object.SubElementNames[0][4:]) - 1
-
-graph_of_sheet_faces = fast_nx_graph_build(shp, root_face)
-
-# we could also get a random spanning tree here. Would that be faster?
-# Or is it better to take the opportunity to get a spanning tree that meets some criteria for optimality?
-# I.E.: the shorter the longest path in the tree, the fewer nested transformations we have to compute
-spanning_tree = nx.minimum_spanning_tree(graph_of_sheet_faces, weight="label")
-
-# convert to directed tree
-dg = nx.DiGraph()
-for node in spanning_tree:
-    # color the nodes nicely (for debugging)
-    dg.add_node(
-        node,
-        color={
-            "Part::GeomPlane": "red",
-            "Part::GeomCylinder": "blue",
-        }[shp.Faces[node].Surface.TypeId],
-    )
-
-lengths = nx.all_pairs_shortest_path_length(spanning_tree)
-ll = {k: kv for k, kv in lengths}
-to_root = ll[root_face]
-
-for f1, f2, edata in spanning_tree.edges(data=True):
-    if to_root[f1] <= to_root[f2]:
-        dg.add_edge(f1, f2, label=edata["label"])
-    else:
-        dg.add_edge(f2, f1, label=edata["label"])
-
-assert nx.is_directed_acyclic_graph(dg)
-
-print(str(nx.nx_pydot.to_pydot(dg)))
 
 
 class UVRef(Enum):
@@ -297,12 +265,8 @@ def unroll_cylinder(
 def compute_unbend_transform(
     p1: Part.Face, p2: Part.Face, bc: Part.Face, base_edge: Part.Edge
 ) -> Matrix:
-    assert isinstance(p1.Surface, Part.Plane)
-    assert isinstance(p2.Surface, Part.Plane)
-    assert isinstance(base_edge.Curve, Part.Line)
-    assert isinstance(bc.Surface, Part.Cylinder)
     # angle = p1.Surface.Axis.getAngle(p2.Surface.Axis)
-    # for cylindrical surfaces, the u-parameter corresponds to the radial direction, and the u-period is the radial boundary of the sylindrical patch. The v-period corresponds to the axial direction.
+    # for cylindrical surfaces, the u-parameter corresponds to the radial direction, and the u-period is the radial boundary of the cylindrical patch. The v-period corresponds to the axial direction.
     umin, umax, vmin, vmax = bc.ParameterRange
     # the u period is always positive: 0.0 <= umin < umax <= 2*pi
     bend_angle = umax - umin
@@ -330,19 +294,21 @@ def compute_unbend_transform(
         cylinder_orientation = "Reverse"
     else:
         raise RuntimeError("no point on reference edge")
-    # the x-axis of our desired reference is the tangent vector to a radial line on the cylindrical surface, pointing away from the p1 face. We can compute this curve from the cylindrical surface
+    # the x-axis of our desired reference is the tangent vector to a radial
+    # line on the cylindrical surface, pointing away from the p1 face.
+    # We can compute this curve from the cylindrical surface
     if cylinder_orientation == "Forward":
         tangent_vector, binormal_vector = bc.Surface.tangent(umin, vmin)
         y_axis = tangent_vector
+        # use the normal of the face and not the surface here
+        # If the face is reverse oriented, the surface normal will be flipped relative to the face normal
         z_axis = bc.normalAt(umin, vmin)
     else:
         tangent_vector, binormal_vector = bc.Surface.tangent(umax, vmin)
         y_axis = tangent_vector.negative()
         z_axis = bc.normalAt(umax, vmin)
-    # use the normal of the face and not the surface here - if the face is reverse oriented, the surface normal will be flipped relative to the face normal
-    # if bc.Orientation == "Reversed":
-    #     z_axis = z_axis*-1
-    # place the reference point such that the cylindrical face lies in the (+x, +y) quadrant of the xy-plane
+    # place the reference point such that the cylindrical face lies in the
+    # (+x, +y) quadrant of the xy-plane of the reference coordinate system
     x_axis = y_axis.cross(z_axis)
     if cylinder_orientation == "Forward":
         if x_axis.dot(corner_1 := bc.valueAt(umin, vmin)) < x_axis.dot(
@@ -358,42 +324,35 @@ def compute_unbend_transform(
             lcs_base_point = corner_1
         else:
             lcs_base_point = corner_2
-    # lcs_base_point = base_edge.CenterOfGravity
-
-    # y_vector_possibly_wrong_direction = base_edge.Curve.Direction
-    # the z-axis of our desired reference coordinate system is the normal vector of the stationary planar face:
-    # don't rely on p1.Surface.Axis here, as it may be flipped relative to the actual face
-    # z_axis = p1.Surface.Axis
-    # z_axis = p1.normalAt(0,0)  # dummy uv coords should be fine for planar faces
-    # z_axis =
-    # we have a handy rotation constructer that will build the correct matrix for us from the known x and z vectors
-    # the y-axis can be left as a 0-vector, it will be ignored based on the "XZY" priority string
+    # the x-axis can be left as a 0-vector, it will be ignored based on the axis priority string
     lcs_rotation = Rotation(Vector(), y_axis, z_axis, "ZYX")
     alignment_transform = Placement(lcs_base_point, lcs_rotation).toMatrix()
-    # the actual unbend transformation is found by reversing the rotation of the p2 face sue to bending, then pushing it forward according to the bend allowance
+    # the actual unbend transformation is found by reversing the rotation of
+    # the p2 face due to bending, then pushing it forward according to the bend allowance
     k_factor = 0.5
     thickness = 2.0
     bend_allowance = (radius + k_factor * thickness) * bend_angle
-    # this corresponds to a rotaion about a copy of the y-axis, translated in the z direction by the value of the bend radius
-    unrotate_transform = Matrix(
-        cos(bend_angle),
-        0,
-        -1 * sin(bend_angle),
-        radius * sin(bend_angle),
-        0,
-        1,
-        0,
-        0,
-        sin(bend_angle),
-        0,
-        cos(bend_angle),
-        -1 * radius * cos(bend_angle) + radius,
-        0,
-        0,
-        0,
-        1,
-    )
-    # this one is just a translation forward in the x-direction
+    # this transformation corresponds to a rotation about a copy of the y-axis,
+    # translated in the z direction by the value of the bend radius
+    # unrotate_transform = Matrix(
+    #     cos(bend_angle),
+    #     0,
+    #     -1 * sin(bend_angle),
+    #     radius * sin(bend_angle),
+    #     0,
+    #     1,
+    #     0,
+    #     0,
+    #     sin(bend_angle),
+    #     0,
+    #     cos(bend_angle),
+    #     -1 * radius * cos(bend_angle) + radius,
+    #     0,
+    #     0,
+    #     0,
+    #     1,
+    # )
+    # this one is just a translation forward in the reference coordinate system's x-direction
     allowance_transform = Matrix(
         1,
         0,
@@ -412,12 +371,6 @@ def compute_unbend_transform(
         0,
         1,
     )
-    inverse_align = alignment_transform.inverse()
-    overall_transform = (
-        inverse_align * unrotate_transform * allowance_transform * alignment_transform
-    )
-    obj = FreeCAD.ActiveDocument.addObject("PartDesign::CoordinateSystem", "test_cs")
-    obj.Placement = Placement(alignment_transform)
 
     rot = Rotation(Vector(1, 0, 0), -1 * degrees(bend_angle)).toMatrix()
     translate = Matrix(
@@ -439,43 +392,78 @@ def compute_unbend_transform(
         1,
     )
 
-    subtransform_1 = translate * rot * translate.inverse()
+    # compose transformations to get the final matrix
+    mat = Matrix()
+    mat.transform(Vector(), alignment_transform.inverse())
+    mat.transform(Vector(), translate * rot * translate.inverse())
+    mat.transform(Vector(), allowance_transform)
+    mat.transform(Vector(), alignment_transform)
 
-    test_mat = Matrix()
-    test_mat.transform(Vector(), alignment_transform.inverse())
-    test_mat.transform(Vector(), subtransform_1)
-    test_mat.transform(Vector(), allowance_transform)
-    test_mat.transform(Vector(), alignment_transform)
+    Part.show(p2.transformed(mat), "wtf")
 
-    Part.show(p2.transformed(test_mat), "wtf")
-
-    # Part.show(p2.transformed((alignment_transform.inverse()*subtransform_1)*allowance_transform))
-    # Part.show(p2.transformed(translate*rot*translate.inverse()*alignment_transform))
-
-    # aligned_pl.rotate(z_axis.normalize()*radius, y_axis.cross(z_axis), degrees(bend_angle))
-    # Part.show(p2.transformed(inverse_align*unrotate_transform, True), "rotated")
-    # Part.show(p2.transformed(inverse_align*unrotate_transform*allowance_transform, True), "with_allowance")
-
-    # Part.show(p2.transformed(overall_transform), "overall")
-
-    # also show off the unrolled cylindrical patch:
     unrolled_face = unroll_cylinder(bc, UVRef.BOTTOM_LEFT, k_factor, thickness)
     Part.show(unrolled_face.transformed(alignment_transform))
 
-    return overall_transform
+    return mat
 
 
-# the digraph should now have everything we need to unfold the shape
-# unfold bends adjacent to 2 planar faces
-for e in [
-    e for e in dg.edges if shp.Faces[e[0]].Surface.TypeId == "Part::GeomCylinder"
-]:
-    bend_part = shp.Faces[e[0]]
-    flat_part = shp.Faces[e[1]]
-    face_before_bend_index = next(dg.predecessors(e[0]))
-    face_before_bend = shp.Faces[face_before_bend_index]
-    # edge_before_bend =  parent_graph_edge[2]["label"]
-    edge_before_bend_index = dg.get_edge_data(face_before_bend_index, e[0])["label"]
-    edge_before_bend = shp.Edges[edge_before_bend_index]
-    compute_unbend_transform(face_before_bend, flat_part, bend_part, edge_before_bend)
-    print(f"{face_before_bend_index=},{edge_before_bend_index=}")
+def unfold(shape: Part.Shape, root_face_index: int, k_factor: int = 0.5) -> Part.Shape:
+    graph_of_sheet_faces = build_graph_of_tangent_faces(shp, root_face)
+
+    # we could also get a random spanning tree here. Would that be faster?
+    # Or is it better to take the opportunity to get a spanning tree that meets
+    # some criteria for minimization?
+    # I.E.: the shorter the longest path in the tree, the fewer nested
+    # transformations we have to compute
+    spanning_tree = nx.minimum_spanning_tree(graph_of_sheet_faces, weight="label")
+
+    # convert to 'directed tree'
+    dg = nx.DiGraph()
+    for node in spanning_tree:
+        # color the nodes nicely (for debugging)
+        dg.add_node(
+            node,
+            color={
+                "Part::GeomPlane": "red",
+                "Part::GeomCylinder": "blue",
+            }[shp.Faces[node].Surface.TypeId],
+        )
+
+    lengths = nx.all_pairs_shortest_path_length(spanning_tree)
+    ll = {k: kv for k, kv in lengths}
+    to_root = ll[root_face]
+
+    for f1, f2, edata in spanning_tree.edges(data=True):
+        if to_root[f1] <= to_root[f2]:
+            dg.add_edge(f1, f2, label=edata["label"])
+        else:
+            dg.add_edge(f2, f1, label=edata["label"])
+
+    assert nx.is_directed_acyclic_graph(dg)
+
+    print(str(nx.nx_pydot.to_pydot(dg)))
+
+    # the digraph should now have everything we need to unfold the shape
+    # unfold bends adjacent to 2 planar faces
+    for e in [
+        e for e in dg.edges if shp.Faces[e[0]].Surface.TypeId == "Part::GeomCylinder"
+    ]:
+        bend_part = shp.Faces[e[0]]
+        flat_part = shp.Faces[e[1]]
+        face_before_bend_index = next(dg.predecessors(e[0]))
+        face_before_bend = shp.Faces[face_before_bend_index]
+        edge_before_bend_index = dg.get_edge_data(face_before_bend_index, e[0])["label"]
+        edge_before_bend = shp.Edges[edge_before_bend_index]
+        compute_unbend_transform(
+            face_before_bend, flat_part, bend_part, edge_before_bend
+        )
+        print(f"{face_before_bend_index=},{edge_before_bend_index=}")
+
+    return Part.Shape()
+
+
+if __name__ == "__main__":
+    selection_object = FreeCAD.Gui.Selection.getCompleteSelection()[0]
+    shp = selection_object.Object.Shape
+    root_face = int(selection_object.SubElementNames[0][4:]) - 1
+    _ = unfold(shp, root_face)
