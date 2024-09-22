@@ -6,6 +6,8 @@ from math import radians, degrees, log10
 from enum import Enum, auto
 from statistics import mode
 from itertools import combinations
+from functools import reduce
+from operator import mul as multiply_operator
 
 
 # used when comparing positions in 3D space
@@ -283,7 +285,6 @@ def unroll_cylinder(
     radius = cylindrical_face.Surface.Radius
     bend_allowance = (radius + k_factor * thickness) * bend_angle
     y_scale_factor = radius * bend_allowance / (radius * bend_angle)
-    print(f"{y_scale_factor=}")
     wire = Part.Wire()
     for e in cylindrical_face.Edges:
         edge_on_surface, e_param_min, e_param_max = cylindrical_face.curveOnSurface(e)
@@ -424,13 +425,13 @@ def compute_unbend_transform(
     )
 
     # compose transformations to get the final matrix
-    mat = Matrix()
-    mat.transform(Vector(), alignment_transform.inverse())
-    mat.transform(Vector(), translate * rot * translate.inverse())
-    mat.transform(Vector(), allowance_transform)
-    mat.transform(Vector(), alignment_transform)
+    overall_transform = Matrix()
+    overall_transform.transform(Vector(), alignment_transform.inverse())
+    overall_transform.transform(Vector(), translate * rot * translate.inverse())
+    overall_transform.transform(Vector(), allowance_transform)
+    overall_transform.transform(Vector(), alignment_transform)
 
-    return mat
+    return alignment_transform, overall_transform
 
 
 def unfold(shape: Part.Shape, root_face_index: int, k_factor: int = 0.5) -> Part.Shape:
@@ -476,18 +477,48 @@ def unfold(shape: Part.Shape, root_face_index: int, k_factor: int = 0.5) -> Part
     for e in [
         e for e in dg.edges if shp.Faces[e[1]].Surface.TypeId == "Part::GeomCylinder"
     ]:
-        print(e)
         bend_part = shp.Faces[e[1]]
         edge_before_bend_index = dg.get_edge_data(e[0], e[1])["label"]
         edge_before_bend = shp.Edges[edge_before_bend_index]
-        _ = compute_unbend_transform(bend_part, edge_before_bend, thickness, k_factor)
-        _ = unroll_cylinder(bend_part, UVRef.BOTTOM_LEFT, k_factor, thickness)
+        alignment_transform, overall_transform = compute_unbend_transform(
+            bend_part, edge_before_bend, thickness, k_factor
+        )
+        unbent_face = unroll_cylinder(bend_part, UVRef.BOTTOM_LEFT, k_factor, thickness)
+        # add the transformation and unbend shape to the end node of the edge as attributes
+        dg.nodes[e[1]]["unbent_shape"] = unbent_face.transformed(alignment_transform)
+        dg.nodes[e[1]]["unbend_transform"] = overall_transform
+        # print(str(nx.nx_pydot.to_pydot(dg)))
 
-    return Part.Shape()
+    # get a path from the root (stationary) face to each other face
+    # so we can combine transformations to position the final shape
+    list_of_faces = []
+    for face_id, path in nx.shortest_path(dg, source=root_face_index).items():
+        path_to_face = path[
+            :-1
+        ]  # the path includes the face itself, which we don't need
+        ndat = dg.nodes.data()
+        list_of_matrices = [
+            ndat[f]["unbend_transform"]
+            for f in path_to_face
+            if "unbend_transform" in ndat[f]
+        ]
+        final_mat = reduce(multiply_operator, list_of_matrices, Matrix())
+        if "unbent_shape" in ndat[face_id]:
+            final_face = ndat[face_id]["unbent_shape"]
+        else:
+            final_face = shape.Faces[face_id]
+        list_of_faces.append(final_face.transformed(final_mat))
+    extrude_vec = shp.Faces[root_face_index].normalAt(0, 0).normalize() * -1 * thickness
+    solid_components = [f.extrude(extrude_vec) for f in list_of_faces]
+    # TODO: optimize use of fuzzy boolean options
+    fuzzy_tolerance = eps * 1000
+    solid = solid_components[0].multiFuse(solid_components[1:], fuzzy_tolerance)
+    return solid.removeSplitter()
 
 
 if __name__ == "__main__":
     selection_object = FreeCAD.Gui.Selection.getCompleteSelection()[0]
     shp = selection_object.Object.Shape
     root_face = int(selection_object.SubElementNames[0][4:]) - 1
-    _ = unfold(shp, root_face, k_factor=0.5)
+    unfolded_shape = unfold(shp, root_face, k_factor=0.5)
+    Part.show(unfolded_shape, selection_object.Object.Label + "_Unfold")
