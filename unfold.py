@@ -307,7 +307,11 @@ def unroll_cylinder(
     umin, umax, vmin, vmax = cylindrical_face.ParameterRange
     bend_angle = umax - umin
     radius = cylindrical_face.Surface.Radius
-    bend_allowance = (radius + k_factor * thickness) * bend_angle
+    bend_direction = {"Reversed": "Up", "Forward": "Down"}[cylindrical_face.Orientation]
+    if bend_direction == "Up":
+        bend_allowance = (radius + k_factor * thickness) * bend_angle
+    else:
+        bend_allowance = (radius - thickness * (1 - k_factor)) * bend_angle
     y_scale_factor = radius * bend_allowance / (radius * bend_angle)
     wire = Part.Wire()
     for e in cylindrical_face.Edges:
@@ -357,9 +361,9 @@ def compute_unbend_transform(
     # the surface of the outside of a tube ('convex') is always forward-oriented
     # the surface of the inside of a tube ('concave') is always reverse-oriented
     bend_direction = {"Reversed": "Up", "Forward": "Down"}[bent_face.Orientation]
-    if bend_direction == "Down":
-        bend_angle = -1 * bend_angle
-    # the reference edge should intersect with the bent cylindrical surface at either the start or end of the cylinders u-parameter range. We need to determine which of these possibilities is correct
+    # the reference edge should intersect with the bent cylindrical surface at
+    # either the start or end of the cylinders u-parameter range.
+    # We need to determine which of these possibilities is correct
     first_corner_point = bent_face.valueAt(umin, vmin)
     second_corner_point = bent_face.valueAt(umax, vmin)
     # at least one of these points should be on the starting edge
@@ -382,7 +386,8 @@ def compute_unbend_transform(
         tangent_vector, binormal_vector = bent_face.Surface.tangent(umin, vmin)
         y_axis = tangent_vector
         # use the normal of the face and not the surface here
-        # If the face is reverse oriented, the surface normal will be flipped relative to the face normal
+        # If the face is reverse oriented, the surface normal will be flipped
+        # relative to the face normal.
         z_axis = bent_face.normalAt(umin, vmin)
     else:
         tangent_vector, binormal_vector = bent_face.Surface.tangent(umax, vmin)
@@ -405,12 +410,19 @@ def compute_unbend_transform(
             lcs_base_point = corner_1
         else:
             lcs_base_point = corner_2
-    # the x-axis can be left as a 0-vector, it will be ignored based on the axis priority string
+    # the x-axis can be left as a 0-vector, it will be ignored based on the
+    # axis priority string
     lcs_rotation = Rotation(Vector(), y_axis, z_axis, "ZYX")
     alignment_transform = Placement(lcs_base_point, lcs_rotation).toMatrix()
     # the actual unbend transformation is found by reversing the rotation of
-    # the p2 face due to bending, then pushing it forward according to the bend allowance
-    bend_allowance = (radius + k_factor * thickness) * bend_angle
+    # the p2 face due to bending, then pushing it forward according to the
+    # bend allowance
+
+    if bend_direction == "Up":
+        bend_allowance = (radius + k_factor * thickness) * bend_angle
+    else:
+        bend_allowance = (radius - thickness * (1 - k_factor)) * bend_angle
+
     # fmt: off
     allowance_transform = Matrix(
         1, 0, 0, 0,
@@ -418,11 +430,14 @@ def compute_unbend_transform(
         0, 0, 1, 0,
         0, 0, 0, 1
     )
-    rot = Rotation(Vector(1, 0, 0), -1 * degrees(bend_angle)).toMatrix()
+    rot = Rotation(
+        Vector(1, 0, 0),
+        (-1 if bend_direction == "Up" else 1) * degrees(bend_angle)
+    ).toMatrix()
     translate = Matrix(
         1, 0, 0, 0,
         0, 1, 0, 0,
-        0, 0, 1, radius,
+        0, 0, 1, (1 if bend_direction == "Up" else -1) * radius,
         0, 0, 0, 1
     )
     # fmt: on
@@ -436,7 +451,7 @@ def compute_unbend_transform(
     return alignment_transform, overall_transform
 
 
-def unfold(shape: Part.Shape, root_face_index: int, k_factor: int = 0.5) -> Part.Shape:
+def unfold(shape: Part.Shape, root_face_index: int, k_factor: int) -> Part.Shape:
     graph_of_sheet_faces = build_graph_of_tangent_faces(shp, root_face)
 
     thickness = estimate_thickness_from_cylinders(shape)
@@ -518,7 +533,7 @@ def unfold(shape: Part.Shape, root_face_index: int, k_factor: int = 0.5) -> Part
     # TODO: optimize use of fuzzy boolean options
     fuzzy_tolerance = eps * 1000
     solid = solid_components[0].multiFuse(solid_components[1:], fuzzy_tolerance)
-    return solid.removeSplitter()
+    return solid  # .removeSplitter()
 
 
 if __name__ == "__main__":
