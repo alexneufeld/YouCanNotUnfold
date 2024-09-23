@@ -533,9 +533,9 @@ def unfold(shape: Part.Shape, root_face_index: int, k_factor: int) -> Part.Shape
         list_of_faces.append(final_face.transformed(final_mat))
     extrude_vec = shp.Faces[root_face_index].normalAt(0, 0).normalize() * -1 * thickness
     solid_components = [f.extrude(extrude_vec) for f in list_of_faces]
-    # TODO: optimize use of fuzzy boolean options
-    fuzzy_tolerance = eps * 1000
-    solid = solid_components[0].multiFuse(solid_components[1:], fuzzy_tolerance)
+    # note that the multiFuse function can also accept a tolerance/fuzz value argument
+    # In testing, supplying such a value did not change performance
+    solid = solid_components[0].multiFuse(solid_components[1:])
     return solid.removeSplitter()
 
 
