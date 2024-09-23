@@ -572,7 +572,7 @@ def unfold(shape: Part.Shape, root_face_index: int, k_factor: int) -> Part.Shape
     # In testing, supplying such a value did not change performance
     solid = solid_components[0].multiFuse(solid_components[1:]).removeSplitter()
     profile_sketch_lines = get_profile_sketch_lines(
-        solid, shape.Faces[root_face].normalAt(0, 0)
+        Part.makeCompound(list_of_faces), shape.Faces[root_face].normalAt(0, 0)
     )
     projected_bend_lines = get_profile_sketch_lines(
         Part.makeCompound(list_of_bend_lines), shape.Faces[root_face].normalAt(0, 0)
