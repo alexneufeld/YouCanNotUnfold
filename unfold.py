@@ -294,6 +294,7 @@ def unroll_cylinder(
         bend_allowance = (radius + k_factor * thickness) * bend_angle
     else:
         bend_allowance = (radius - thickness * (1 - k_factor)) * bend_angle
+    overall_height = abs(vmax - vmin)
     y_scale_factor = radius * bend_allowance / (radius * bend_angle)
     wire = Part.Wire()
     for e in cylindrical_face.Edges:
@@ -322,12 +323,24 @@ def unroll_cylinder(
                 f"Unhandled curve type when unfolding face: {type(edge_on_surface)}"
             )
             raise TypeError(errmsg)
-    return Part.makeFace(wire, "Part::FaceMakerBullseye")
+    face = Part.makeFace(wire, "Part::FaceMakerBullseye")
+    mirror_base_pos = Vector(overall_height / 2, bend_allowance / 2)
+    match refpos:
+        case UVRef.BOTTOM_LEFT:
+            return face
+        case UVRef.BOTTOM_RIGHT:
+            return face.mirror(mirror_base_pos, Vector(1, 0))
+        case UVRef.TOP_LEFT:
+            return face.mirror(mirror_base_pos, Vector(0, 1))
+        case UVRef.TOP_RIGHT:
+            return face.mirror(mirror_base_pos, Vector(0, 1)).mirror(
+                mirror_base_pos, Vector(1, 0)
+            )
 
 
 def compute_unbend_transform(
     bent_face: Part.Face, base_edge: Part.Edge, thickness: float, k_factor: float
-) -> Matrix:
+) -> tuple:
     # for cylindrical surfaces, the u-parameter corresponds to the radial
     # direction, and the u-period is the radial boundary of the cylindrical
     # patch. The v-period corresponds to the axial direction.
@@ -373,8 +386,10 @@ def compute_unbend_transform(
             corner_2 := bent_face.valueAt(umin, vmax)
         ):
             lcs_base_point = corner_1
+            uvref = UVRef.BOTTOM_LEFT
         else:
             lcs_base_point = corner_2
+            uvref = UVRef.TOP_LEFT
     elif dist2 < eps:  # 'Reverse' orientation
         tangent_vector, binormal_vector = bent_face.Surface.tangent(umax, vmin)
         y_axis = tangent_vector.negative()
@@ -384,8 +399,10 @@ def compute_unbend_transform(
             corner_4 := bent_face.valueAt(umax, vmax)
         ):
             lcs_base_point = corner_3
+            uvref = UVRef.BOTTOM_RIGHT
         else:
             lcs_base_point = corner_4
+            uvref = UVRef.TOP_RIGHT
     else:
         errmsg = "No point on reference edge"
         raise RuntimeError(errmsg)
@@ -423,7 +440,7 @@ def compute_unbend_transform(
     overall_transform.transform(Vector(), translate * rot * translate.inverse())
     overall_transform.transform(Vector(), allowance_transform)
     overall_transform.transform(Vector(), alignment_transform)
-    return alignment_transform, overall_transform
+    return alignment_transform, overall_transform, uvref
 
 
 def unfold(shape: Part.Shape, root_face_index: int, k_factor: int) -> Part.Shape:
@@ -467,10 +484,10 @@ def unfold(shape: Part.Shape, root_face_index: int, k_factor: int) -> Part.Shape
         bend_part = shp.Faces[e[1]]
         edge_before_bend_index = dg.get_edge_data(e[0], e[1])["label"]
         edge_before_bend = shp.Edges[edge_before_bend_index]
-        alignment_transform, overall_transform = compute_unbend_transform(
+        alignment_transform, overall_transform, uvref = compute_unbend_transform(
             bend_part, edge_before_bend, thickness, k_factor
         )
-        unbent_face = unroll_cylinder(bend_part, UVRef.BOTTOM_LEFT, k_factor, thickness)
+        unbent_face = unroll_cylinder(bend_part, uvref, k_factor, thickness)
         # add the transformation and unbend shape to the end node of the edge as attributes
         dg.nodes[e[1]]["unbent_shape"] = unbent_face.transformed(alignment_transform)
         dg.nodes[e[1]]["unbend_transform"] = overall_transform
