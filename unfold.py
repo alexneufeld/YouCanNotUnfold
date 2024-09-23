@@ -2,6 +2,7 @@ import FreeCAD
 import Part
 import networkx as nx
 from FreeCAD import Vector, Matrix, Rotation, Placement
+from TechDraw import projectEx as project_shape_to_plane
 from math import radians, degrees, log10
 from enum import Enum, auto
 from statistics import mode, StatisticsError
@@ -294,7 +295,7 @@ class UVRef(Enum):
 
 def unroll_cylinder(
     cylindrical_face: Part.Face, refpos: UVRef, k_factor: float, thickness: float
-) -> Part.Face:
+) -> tuple[Part.Face, Part.Edge]:
     # the u,v reference position becomes x,y = 0,0
     # the face is oriented z-up
     # the u period is always positive: 0.0 <= umin < umax <= 2*pi
@@ -339,15 +340,24 @@ def unroll_cylinder(
     mirror_base_pos = Vector(overall_height / 2, bend_allowance / 2)
     match refpos:
         case UVRef.BOTTOM_LEFT:
-            return face
+            fixed_face = face
         case UVRef.BOTTOM_RIGHT:
-            return face.mirror(mirror_base_pos, Vector(1, 0))
+            fixed_face = face.mirror(mirror_base_pos, Vector(1, 0))
         case UVRef.TOP_LEFT:
-            return face.mirror(mirror_base_pos, Vector(0, 1))
+            fixed_face = face.mirror(mirror_base_pos, Vector(0, 1))
         case UVRef.TOP_RIGHT:
-            return face.mirror(mirror_base_pos, Vector(0, 1)).mirror(
+            fixed_face = face.mirror(mirror_base_pos, Vector(0, 1)).mirror(
                 mirror_base_pos, Vector(1, 0)
             )
+    bend_line = (
+        fixed_face.translated(Vector(0, 0, -0.5))
+        .extrude(Vector(0, 0, 1))
+        .common(Part.Line(mirror_base_pos, mirror_base_pos - Vector(1, 0)))
+        .copy()
+    )
+    # Part.show(fixed_face, "fixed_face")
+    # Part.show(bend_line, "bend_line")
+    return fixed_face, bend_line
 
 
 def compute_unbend_transform(
@@ -455,6 +465,17 @@ def compute_unbend_transform(
     return alignment_transform, overall_transform, uvref
 
 
+def get_profile_sketch_lines(solid: Part.Shape, direction: Vector) -> Part.Shape:
+    # ref: https://github.com/FreeCAD/FreeCAD/blob/main/src/Mod/Draft/draftobjects/shape2dview.py
+    raw_output = project_shape_to_plane(solid, direction)
+    edges = []
+    for group in raw_output[0:5]:
+        if not group.isNull():
+            edges.append(group)
+    compound = Part.makeCompound(edges)
+    return compound  # .translated(Vector(compound.BoundBox.XMin,compound.BoundBox.YMin)*-1)
+
+
 def unfold(shape: Part.Shape, root_face_index: int, k_factor: int) -> Part.Shape:
     graph_of_sheet_faces = build_graph_of_tangent_faces(shp, root_face)
     if not graph_of_sheet_faces:
@@ -492,10 +513,9 @@ def unfold(shape: Part.Shape, root_face_index: int, k_factor: int) -> Part.Shape
             }[shp.Faces[node].Surface.TypeId],
         )
     lengths = nx.all_pairs_shortest_path_length(spanning_tree)
-    ll = {k: kv for k, kv in lengths}
-    to_root = ll[root_face]
+    distances_to_root_face = {k: kv for k, kv in lengths}[root_face]
     for f1, f2, edata in spanning_tree.edges(data=True):
-        if to_root[f1] <= to_root[f2]:
+        if distances_to_root_face[f1] <= distances_to_root_face[f2]:
             dg.add_edge(f1, f2, label=edata["label"])
         else:
             dg.add_edge(f2, f1, label=edata["label"])
@@ -520,13 +540,15 @@ def unfold(shape: Part.Shape, root_face_index: int, k_factor: int) -> Part.Shape
         alignment_transform, overall_transform, uvref = compute_unbend_transform(
             bend_part, edge_before_bend, thickness, k_factor
         )
-        unbent_face = unroll_cylinder(bend_part, uvref, k_factor, thickness)
+        unbent_face, bend_line = unroll_cylinder(bend_part, uvref, k_factor, thickness)
         # add the transformation and unbend shape to the end node of the edge as attributes
         dg.nodes[e[1]]["unbent_shape"] = unbent_face.transformed(alignment_transform)
         dg.nodes[e[1]]["unbend_transform"] = overall_transform
+        dg.nodes[e[1]]["bend_line"] = bend_line.transformed(alignment_transform)
     # get a path from the root (stationary) face to each other face
     # so we can combine transformations to position the final shape
     list_of_faces = []
+    list_of_bend_lines = []
     for face_id, path in nx.shortest_path(dg, source=root_face_index).items():
         # the path includes the face itself, which we don't need
         path_to_face = path[:-1]
@@ -541,13 +563,39 @@ def unfold(shape: Part.Shape, root_face_index: int, k_factor: int) -> Part.Shape
             final_face = ndat[face_id]["unbent_shape"]
         else:
             final_face = shape.Faces[face_id]
+        if "bend_line" in ndat[face_id]:
+            list_of_bend_lines.append(ndat[face_id]["bend_line"].transformed(final_mat))
         list_of_faces.append(final_face.transformed(final_mat))
     extrude_vec = shp.Faces[root_face_index].normalAt(0, 0).normalize() * -1 * thickness
     solid_components = [f.extrude(extrude_vec) for f in list_of_faces]
     # note that the multiFuse function can also accept a tolerance/fuzz value argument
     # In testing, supplying such a value did not change performance
-    solid = solid_components[0].multiFuse(solid_components[1:])
-    return solid.removeSplitter()
+    solid = solid_components[0].multiFuse(solid_components[1:]).removeSplitter()
+    profile_sketch_lines = get_profile_sketch_lines(
+        solid, shape.Faces[root_face].normalAt(0, 0)
+    )
+    projected_bend_lines = get_profile_sketch_lines(
+        Part.makeCompound(list_of_bend_lines), shape.Faces[root_face].normalAt(0, 0)
+    )
+    Part.show(
+        profile_sketch_lines.translated(
+            Vector(
+                profile_sketch_lines.BoundBox.XMin, profile_sketch_lines.BoundBox.YMin
+            )
+            * -1
+        ),
+        "Unfold_Profile",
+    )
+    Part.show(
+        projected_bend_lines.translated(
+            Vector(
+                profile_sketch_lines.BoundBox.XMin, profile_sketch_lines.BoundBox.YMin
+            )
+            * -1
+        ),
+        "Bend_Lines",
+    )
+    return solid
 
 
 if __name__ == "__main__":
