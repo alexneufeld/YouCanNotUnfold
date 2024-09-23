@@ -498,6 +498,13 @@ def unfold(shape: Part.Shape, root_face_index: int, k_factor: int) -> Part.Shape
         bend_part = shp.Faces[e[1]]
         edge_before_bend_index = dg.get_edge_data(e[0], e[1])["label"]
         edge_before_bend = shp.Edges[edge_before_bend_index]
+        if edge_before_bend.Curve.TypeId != "Part::GeomLine":
+            errmsg = (
+                "This shape appears to have bends across non-straight edges. "
+                "Unfolding such a shape is not yet supported."
+                f" (Edge{edge_before_bend_index + 1})"
+            )
+            raise RuntimeError(errmsg)
         alignment_transform, overall_transform, uvref = compute_unbend_transform(
             bend_part, edge_before_bend, thickness, k_factor
         )
