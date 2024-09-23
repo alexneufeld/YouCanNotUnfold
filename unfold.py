@@ -131,7 +131,7 @@ def compare_sphere_sphere(s1: Part.Sphere, s2: Part.Sphere) -> bool:
 
 
 def compare_plane_sphere(p: Part.Plane, s: Part.Sphere) -> bool:
-    return abs(abs(s.Center.distanceToPlane(p.Position, p.Axis)) - s.radius) < eps
+    return abs(abs(s.Center.distanceToPlane(p.Position, p.Axis)) - s.Radius) < eps
 
 
 def compare_cylinder_sphere(c: Part.Cylinder, s: Part.Sphere) -> bool:
@@ -473,6 +473,10 @@ def unfold(shape: Part.Shape, root_face_index: int, k_factor: int) -> Part.Shape
             color={
                 "Part::GeomPlane": "red",
                 "Part::GeomCylinder": "blue",
+                "Part::GeomToroid": "purple",
+                "Part::GeomCone": "green",
+                "Part::GeomSurfaceOfExtrusion": "orange",
+                "Part::GeomSphere": "hotpink",
             }[shp.Faces[node].Surface.TypeId],
         )
     lengths = nx.all_pairs_shortest_path_length(spanning_tree)
@@ -483,6 +487,9 @@ def unfold(shape: Part.Shape, root_face_index: int, k_factor: int) -> Part.Shape
             dg.add_edge(f1, f2, label=edata["label"])
         else:
             dg.add_edge(f2, f1, label=edata["label"])
+    FreeCAD.Console.PrintLog(
+        "Network of tangent faces:\n" + str(nx.nx_pydot.to_pydot(dg))
+    )
     # the digraph should now have everything we need to unfold the shape
     # unfold bends adjacent to 2 planar faces
     for e in [
