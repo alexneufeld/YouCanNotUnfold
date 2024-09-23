@@ -284,9 +284,8 @@ def build_graph_of_tangent_faces(shp: Part.Shape, root: int):
     for c in nx.connected_components(gr):
         if root in c:
             return gr.subgraph(c).copy()
-    raise RuntimeError(
-        "Couldn't find a network of useable faces from the chosen seed face"
-    )
+    errmsg = "Couldn't find a network of usable faces from the chosen seed face"
+    raise RuntimeError(errmsg)
 
 
 class UVRef(Enum):
@@ -335,9 +334,10 @@ def unroll_cylinder(
             spline.buildFromPolesMultsKnots(poles=poles, weights=weights)
             wire.add(spline.toShape())
         else:
-            raise ValueError(
+            errmsg = (
                 f"Unhandled curve type when unfolding face: {type(edge_on_surface)}"
             )
+            raise TypeError(errmsg)
 
     return Part.makeFace(wire, "Part::FaceMakerBullseye")
 
@@ -353,16 +353,16 @@ def compute_unbend_transform(
     bend_angle = umax - umin
     radius = bent_face.Surface.Radius
     # disallow fully cylindrical bends. These can't be formed because the
-    # opposite edge of the sheet will intersect p1. Though, if this error
-    # occurs, the most probable cause is bad input geometry
+    # opposite edge of the sheet will intersect the previous face
     if bend_angle > radians(359.9):
-        raise RuntimeError("Bend angle must be less that 359.9 degrees")
+        errmsg = "Bend angle must be less that 359.9 degrees"
+        raise RuntimeError(errmsg)
     # for cylindrical surfaces:
     # the surface of the outside of a tube ('convex') is always forward-oriented
     # the surface of the inside of a tube ('concave') is always reverse-oriented
     bend_direction = {"Reversed": "Up", "Forward": "Down"}[bent_face.Orientation]
     # the reference edge should intersect with the bent cylindrical surface at
-    # either the start or end of the cylinders u-parameter range.
+    # either opposite corner of surface's uv-parameter range.
     # We need to determine which of these possibilities is correct
     first_corner_point = bent_face.valueAt(umin, vmin)
     second_corner_point = bent_face.valueAt(umax, vmin)
@@ -373,56 +373,49 @@ def compute_unbend_transform(
     dist2 = second_corner_point.distanceToLine(
         base_edge.Curve.Location, base_edge.Curve.Direction
     )
-    if dist1 < eps:
-        cylinder_orientation = "Forward"
-    elif dist2 < eps:
-        cylinder_orientation = "Reverse"
-    else:
-        raise RuntimeError("no point on reference edge")
     # the x-axis of our desired reference is the tangent vector to a radial
-    # line on the cylindrical surface, pointing away from the p1 face.
-    # We can compute this curve from the cylindrical surface
-    if cylinder_orientation == "Forward":
+    # line on the cylindrical surface, oriented away from the previous face.
+    # We can compute candidates to choose from with the .tangent() method
+    if dist1 < eps:  # 'Forward' orientation
         tangent_vector, binormal_vector = bent_face.Surface.tangent(umin, vmin)
         y_axis = tangent_vector
         # use the normal of the face and not the surface here
         # If the face is reverse oriented, the surface normal will be flipped
         # relative to the face normal.
         z_axis = bent_face.normalAt(umin, vmin)
-    else:
-        tangent_vector, binormal_vector = bent_face.Surface.tangent(umax, vmin)
-        y_axis = tangent_vector.negative()
-        z_axis = bent_face.normalAt(umax, vmin)
-    # place the reference point such that the cylindrical face lies in the
-    # (+x, +y) quadrant of the xy-plane of the reference coordinate system
-    x_axis = y_axis.cross(z_axis)
-    if cylinder_orientation == "Forward":
+        # place the reference point such that the cylindrical face lies in the
+        # (+x, +y) quadrant of the xy-plane of the reference coordinate system
+        x_axis = y_axis.cross(z_axis)
         if x_axis.dot(corner_1 := bent_face.valueAt(umin, vmin)) < x_axis.dot(
             corner_2 := bent_face.valueAt(umin, vmax)
         ):
             lcs_base_point = corner_1
         else:
             lcs_base_point = corner_2
-    else:
-        if x_axis.dot(corner_1 := bent_face.valueAt(umax, vmin)) < x_axis.dot(
-            corner_2 := bent_face.valueAt(umax, vmax)
+    elif dist2 < eps:  # 'Reverse' orientation
+        tangent_vector, binormal_vector = bent_face.Surface.tangent(umax, vmin)
+        y_axis = tangent_vector.negative()
+        z_axis = bent_face.normalAt(umax, vmin)
+        x_axis = y_axis.cross(z_axis)
+        if x_axis.dot(corner_3 := bent_face.valueAt(umax, vmin)) < x_axis.dot(
+            corner_4 := bent_face.valueAt(umax, vmax)
         ):
-            lcs_base_point = corner_1
+            lcs_base_point = corner_3
         else:
-            lcs_base_point = corner_2
-    # the x-axis can be left as a 0-vector, it will be ignored based on the
-    # axis priority string
-    lcs_rotation = Rotation(Vector(), y_axis, z_axis, "ZYX")
+            lcs_base_point = corner_4
+    else:
+        errmsg = "No point on reference edge"
+        raise RuntimeError(errmsg)
+    # note that the x-axis is ignored here based on the priority string
+    lcs_rotation = Rotation(x_axis, y_axis, z_axis, "ZYX")
     alignment_transform = Placement(lcs_base_point, lcs_rotation).toMatrix()
     # the actual unbend transformation is found by reversing the rotation of
-    # the p2 face due to bending, then pushing it forward according to the
-    # bend allowance
-
+    # a flat face after the bend due to the bending operation,
+    # then pushing it forward according to the bend allowance
     if bend_direction == "Up":
         bend_allowance = (radius + k_factor * thickness) * bend_angle
     else:
         bend_allowance = (radius - thickness * (1 - k_factor)) * bend_angle
-
     # fmt: off
     allowance_transform = Matrix(
         1, 0, 0, 0,
@@ -447,7 +440,6 @@ def compute_unbend_transform(
     overall_transform.transform(Vector(), translate * rot * translate.inverse())
     overall_transform.transform(Vector(), allowance_transform)
     overall_transform.transform(Vector(), alignment_transform)
-
     return alignment_transform, overall_transform
 
 
@@ -458,7 +450,8 @@ def unfold(shape: Part.Shape, root_face_index: int, k_factor: int) -> Part.Shape
     if not thickness:
         thickness = estimate_thickness_from_face(shape, root_face_index)
     if not thickness:
-        raise RuntimeError("Couldn't estimate thickness for shape!")
+        errmsg = "Couldn't estimate thickness for shape!"
+        raise RuntimeError(errmsg)
     # we could also get a random spanning tree here. Would that be faster?
     # Or is it better to take the opportunity to get a spanning tree that meets
     # some criteria for minimization?
