@@ -74,20 +74,6 @@ def estimate_thickness_from_face(shape: Part.Shape, selected_face: int) -> float
     )
 
 
-# Possible values of x in 'isinstance(some_sub_shape.Surface, x)'
-PartSurface = (
-    Part.SurfaceOfExtrusion
-    | Part.Plane
-    | Part.Cylinder
-    | Part.BSplineSurface
-    | Part.BezierSurface
-    | Part.Cone
-    | Part.Sphere
-    | Part.SurfaceOfRevolution
-    | Part.Toroid
-)
-
-
 def compare_plane_plane(p1: Part.Plane, p2: Part.Plane) -> bool:
     # returns True if the two planes have similar normals and the base
     # point of the first plane is (nearly) coincident with the second plane
@@ -260,12 +246,10 @@ def is_faces_tangent(f1: Part.Face, f2: Part.Face) -> bool:
 def build_graph_of_tangent_faces(shp: Part.Shape, root: int):
     # created a simple undirected graph object
     gr = nx.Graph()
-
-    # weird shape mutability nonsense? -> have to use indexes, because the underlying geometry may get changed around while building the graph
-
+    # weird shape mutability nonsense? -> have to use indexes, because the
+    # underlying geometry may get changed around while building the graph
     face_hashes = [f.hashCode() for f in shp.Faces]
     index_lookup = {h: i for i, h in enumerate(face_hashes)}
-
     # get pairs of faces that share the same edge
     candidates = [
         (i, shp.ancestorsOfType(e, Part.Face)) for i, e in enumerate(shp.Edges)
@@ -338,7 +322,6 @@ def unroll_cylinder(
                 f"Unhandled curve type when unfolding face: {type(edge_on_surface)}"
             )
             raise TypeError(errmsg)
-
     return Part.makeFace(wire, "Part::FaceMakerBullseye")
 
 
@@ -445,7 +428,6 @@ def compute_unbend_transform(
 
 def unfold(shape: Part.Shape, root_face_index: int, k_factor: int) -> Part.Shape:
     graph_of_sheet_faces = build_graph_of_tangent_faces(shp, root_face)
-
     thickness = estimate_thickness_from_cylinders(shape)
     if not thickness:
         thickness = estimate_thickness_from_face(shape, root_face_index)
@@ -458,7 +440,6 @@ def unfold(shape: Part.Shape, root_face_index: int, k_factor: int) -> Part.Shape
     # I.E.: the shorter the longest path in the tree, the fewer nested
     # transformations we have to compute
     spanning_tree = nx.minimum_spanning_tree(graph_of_sheet_faces, weight="label")
-
     # convert to 'directed tree'
     dg = nx.DiGraph()
     for node in spanning_tree:
@@ -470,21 +451,14 @@ def unfold(shape: Part.Shape, root_face_index: int, k_factor: int) -> Part.Shape
                 "Part::GeomCylinder": "blue",
             }[shp.Faces[node].Surface.TypeId],
         )
-
     lengths = nx.all_pairs_shortest_path_length(spanning_tree)
     ll = {k: kv for k, kv in lengths}
     to_root = ll[root_face]
-
     for f1, f2, edata in spanning_tree.edges(data=True):
         if to_root[f1] <= to_root[f2]:
             dg.add_edge(f1, f2, label=edata["label"])
         else:
             dg.add_edge(f2, f1, label=edata["label"])
-
-    assert nx.is_directed_acyclic_graph(dg)
-
-    print(str(nx.nx_pydot.to_pydot(dg)))
-
     # the digraph should now have everything we need to unfold the shape
     # unfold bends adjacent to 2 planar faces
     for e in [
@@ -500,8 +474,6 @@ def unfold(shape: Part.Shape, root_face_index: int, k_factor: int) -> Part.Shape
         # add the transformation and unbend shape to the end node of the edge as attributes
         dg.nodes[e[1]]["unbent_shape"] = unbent_face.transformed(alignment_transform)
         dg.nodes[e[1]]["unbend_transform"] = overall_transform
-        # print(str(nx.nx_pydot.to_pydot(dg)))
-
     # get a path from the root (stationary) face to each other face
     # so we can combine transformations to position the final shape
     list_of_faces = []
