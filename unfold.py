@@ -25,7 +25,7 @@ def estimate_thickness_from_cylinders(shp: Part.Shape) -> float:
     curv_map = {}
     for face in shp.Faces:
         if face.Surface.TypeId == "Part::GeomCylinder":
-            # normalize the axis and centerpoint
+            # normalize the axis and center-point
             normalized_axis = face.Surface.Axis.normalize()
             if normalized_axis.dot(FreeCAD.Vector(0, 0, -1)) < 0:
                 normalized_axis = normalized_axis.negative()
@@ -93,8 +93,8 @@ def compare_plane_cylinder(p: Part.Plane, c: Part.Cylinder) -> bool:
 
 
 def compare_cylinder_cylinder(c1: Part.Cylinder, c2: Part.Cylinder) -> bool:
-    # returns True if the two cylinders have parallel axis' and those axis
-    # are seperated by a distance of approximately r1 + r2
+    # returns True if the two cylinders have parallel axis' and those axis'
+    # are separated by a distance of approximately r1 + r2
     return (
         c1.Axis.isParallel(c2.Axis, eps_angular)
         and abs(c1.Center.distanceToLine(c2.Center, c2.Axis) - (c1.Radius + c2.Radius))
@@ -103,6 +103,8 @@ def compare_cylinder_cylinder(c1: Part.Cylinder, c2: Part.Cylinder) -> bool:
 
 
 def compare_plane_torus(p: Part.Plane, t: Part.Toroid) -> bool:
+    # Imagine a donut sitting flat on a table.
+    # That's our tangency condition for a plane and a toroid.
     return (
         p.Axis.isParallel(t.Axis, eps_angular)
         and abs(abs(t.Center.distanceToPlane(p.Position, p.Axis)) - t.MinorRadius) < eps
@@ -110,6 +112,10 @@ def compare_plane_torus(p: Part.Plane, t: Part.Toroid) -> bool:
 
 
 def compare_cylinder_torus(c: Part.Cylinder, t: Part.Toroid) -> bool:
+    # If the surfaces are tangent, either we have:
+    # - a donut inside a circular container, with no gap at the container perimeter
+    # - a donut shoved onto a shaft with no wiggle room
+    # - a cylinder with an axis tangent to the central circle of the donut
     return (
         c.Axis.isParallel(t.Axis, eps_angular)
         and c.Center.distanceToLine(t.Center, t.Axis) < eps
@@ -125,16 +131,22 @@ def compare_cylinder_torus(c: Part.Cylinder, t: Part.Toroid) -> bool:
 
 
 def compare_sphere_sphere(s1: Part.Sphere, s2: Part.Sphere) -> bool:
+    # only segments of identical spheres are tangent to each other
     return (
         s1.Center.distanceToPoint(s2.Center) < eps and abs(s1.Radius - s2.Radius) < eps
     )
 
 
 def compare_plane_sphere(p: Part.Plane, s: Part.Sphere) -> bool:
+    # This function will probably never actually return True,
+    # because a plane and a sphere only ever share a vertex if
+    # they are tangent to each other
     return abs(abs(s.Center.distanceToPlane(p.Position, p.Axis)) - s.Radius) < eps
 
 
 def compare_cylinder_sphere(c: Part.Cylinder, s: Part.Sphere) -> bool:
+    # the sphere must be sized/positioned like a ball sliding down a tube
+    # with no wiggle room
     return (
         s.Center.distanceToLine(c.Center, c.Axis) < eps
         and abs(s.Radius - c.Radius) < eps
@@ -516,9 +528,8 @@ def unfold(shape: Part.Shape, root_face_index: int, k_factor: int) -> Part.Shape
     # so we can combine transformations to position the final shape
     list_of_faces = []
     for face_id, path in nx.shortest_path(dg, source=root_face_index).items():
-        path_to_face = path[
-            :-1
-        ]  # the path includes the face itself, which we don't need
+        # the path includes the face itself, which we don't need
+        path_to_face = path[:-1]
         ndat = dg.nodes.data()
         list_of_matrices = [
             ndat[f]["unbend_transform"]
