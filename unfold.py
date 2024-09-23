@@ -302,7 +302,6 @@ def unroll_cylinder(
 ) -> Part.Face:
     # the u,v reference position becomes x,y = 0,0
     # the face is oriented z-up
-    #
     # the u period is always positive: 0.0 <= umin < umax <= 2*pi
     umin, umax, vmin, vmax = cylindrical_face.ParameterRange
     bend_angle = umax - umin
@@ -316,7 +315,6 @@ def unroll_cylinder(
     wire = Part.Wire()
     for e in cylindrical_face.Edges:
         edge_on_surface, e_param_min, e_param_max = cylindrical_face.curveOnSurface(e)
-        # TODO: fix bspline impl
         if isinstance(edge_on_surface, Part.Geom2d.Line2d):
             v1 = edge_on_surface.value(e_param_min)
             y1, x1 = v1.x - umin, v1.y - vmin
@@ -326,7 +324,6 @@ def unroll_cylinder(
                 Vector(x1, y1 * y_scale_factor), Vector(x2, y2 * y_scale_factor)
             )
             wire.add(line)
-            # Part.show(line, 'line_segment')
         elif isinstance(edge_on_surface, Part.Geom2d.BSplineCurve2d):
             poles_and_weights = edge_on_surface.getPolesAndWeights()
             poles = [
@@ -337,7 +334,6 @@ def unroll_cylinder(
             spline = Part.BSplineCurve()
             spline.buildFromPolesMultsKnots(poles=poles, weights=weights)
             wire.add(spline.toShape())
-            # Part.show(spline.toShape(), 'line_segment')
         else:
             raise ValueError(
                 f"Unhandled curve type when unfolding face: {type(edge_on_surface)}"
@@ -349,12 +345,16 @@ def unroll_cylinder(
 def compute_unbend_transform(
     bent_face: Part.Face, base_edge: Part.Edge, thickness: float, k_factor: float
 ) -> Matrix:
-    # for cylindrical surfaces, the u-parameter corresponds to the radial direction, and the u-period is the radial boundary of the cylindrical patch. The v-period corresponds to the axial direction.
+    # for cylindrical surfaces, the u-parameter corresponds to the radial
+    # direction, and the u-period is the radial boundary of the cylindrical
+    # patch. The v-period corresponds to the axial direction.
     umin, umax, vmin, vmax = bent_face.ParameterRange
     # the u period is always positive: 0.0 <= umin < umax <= 2*pi
     bend_angle = umax - umin
     radius = bent_face.Surface.Radius
-    # disallow fully cylindrical bends. These can't be formed because the opposite edge of the sheet will intersect p1. Though, if this error occurs, the most probable cause is bad input geometry
+    # disallow fully cylindrical bends. These can't be formed because the
+    # opposite edge of the sheet will intersect p1. Though, if this error
+    # occurs, the most probable cause is bad input geometry
     if bend_angle > radians(359.9):
         raise RuntimeError("Bend angle must be less that 359.9 degrees")
     # for cylindrical surfaces:
@@ -533,7 +533,7 @@ def unfold(shape: Part.Shape, root_face_index: int, k_factor: int) -> Part.Shape
     # TODO: optimize use of fuzzy boolean options
     fuzzy_tolerance = eps * 1000
     solid = solid_components[0].multiFuse(solid_components[1:], fuzzy_tolerance)
-    return solid  # .removeSplitter()
+    return solid.removeSplitter()
 
 
 if __name__ == "__main__":
