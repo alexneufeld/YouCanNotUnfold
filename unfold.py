@@ -268,8 +268,8 @@ def build_graph_of_tangent_faces(shp: Part.Shape, root: int):
     for c in nx.connected_components(gr):
         if root in c:
             return gr.subgraph(c).copy()
-    errmsg = "Couldn't find a network of usable faces from the chosen seed face"
-    raise RuntimeError(errmsg)
+    # return None if there is nothing tangent to the seed face
+    return None
 
 
 class UVRef(Enum):
@@ -445,6 +445,13 @@ def compute_unbend_transform(
 
 def unfold(shape: Part.Shape, root_face_index: int, k_factor: int) -> Part.Shape:
     graph_of_sheet_faces = build_graph_of_tangent_faces(shp, root_face)
+    if not graph_of_sheet_faces:
+        errmsg = (
+            "No faces were found that are tangent to the selected face. "
+            "Try selecting a different face, and/"
+            "or confirm that the shape is a watertight solid."
+        )
+        raise RuntimeError(errmsg)
     thickness = estimate_thickness_from_cylinders(shape)
     if not thickness:
         thickness = estimate_thickness_from_face(shape, root_face_index)
