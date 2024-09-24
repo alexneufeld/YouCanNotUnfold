@@ -477,7 +477,7 @@ def get_profile_sketch_lines(solid: Part.Shape, direction: Vector) -> Part.Shape
 
 
 def unfold(shape: Part.Shape, root_face_index: int, k_factor: int) -> Part.Shape:
-    graph_of_sheet_faces = build_graph_of_tangent_faces(shp, root_face)
+    graph_of_sheet_faces = build_graph_of_tangent_faces(shape, root_face)
     if not graph_of_sheet_faces:
         errmsg = (
             "No faces were found that are tangent to the selected face. "
@@ -510,7 +510,7 @@ def unfold(shape: Part.Shape, root_face_index: int, k_factor: int) -> Part.Shape
                 "Part::GeomCone": "green",
                 "Part::GeomSurfaceOfExtrusion": "orange",
                 "Part::GeomSphere": "hotpink",
-            }[shp.Faces[node].Surface.TypeId],
+            }[shape.Faces[node].Surface.TypeId],
         )
     lengths = nx.all_pairs_shortest_path_length(spanning_tree)
     distances_to_root_face = {k: kv for k, kv in lengths}[root_face]
@@ -525,11 +525,11 @@ def unfold(shape: Part.Shape, root_face_index: int, k_factor: int) -> Part.Shape
     # the digraph should now have everything we need to unfold the shape
     # unfold bends adjacent to 2 planar faces
     for e in [
-        e for e in dg.edges if shp.Faces[e[1]].Surface.TypeId == "Part::GeomCylinder"
+        e for e in dg.edges if shape.Faces[e[1]].Surface.TypeId == "Part::GeomCylinder"
     ]:
-        bend_part = shp.Faces[e[1]]
+        bend_part = shape.Faces[e[1]]
         edge_before_bend_index = dg.get_edge_data(e[0], e[1])["label"]
-        edge_before_bend = shp.Edges[edge_before_bend_index]
+        edge_before_bend = shape.Edges[edge_before_bend_index]
         if edge_before_bend.Curve.TypeId != "Part::GeomLine":
             errmsg = (
                 "This shape appears to have bends across non-straight edges. "
@@ -566,35 +566,49 @@ def unfold(shape: Part.Shape, root_face_index: int, k_factor: int) -> Part.Shape
         if "bend_line" in ndat[face_id]:
             list_of_bend_lines.append(ndat[face_id]["bend_line"].transformed(final_mat))
         list_of_faces.append(final_face.transformed(final_mat))
-    extrude_vec = shp.Faces[root_face_index].normalAt(0, 0).normalize() * -1 * thickness
+    extrude_vec = (
+        shape.Faces[root_face_index].normalAt(0, 0).normalize() * -1 * thickness
+    )
     solid_components = [f.extrude(extrude_vec) for f in list_of_faces]
     # note that the multiFuse function can also accept a tolerance/fuzz value argument
     # In testing, supplying such a value did not change performance
     solid = solid_components[0].multiFuse(solid_components[1:]).removeSplitter()
-    profile_sketch_lines = get_profile_sketch_lines(
-        Part.makeCompound(list_of_faces), shape.Faces[root_face].normalAt(0, 0)
-    )
-    projected_bend_lines = get_profile_sketch_lines(
-        Part.makeCompound(list_of_bend_lines), shape.Faces[root_face].normalAt(0, 0)
-    )
-    Part.show(
-        profile_sketch_lines.translated(
-            Vector(
-                profile_sketch_lines.BoundBox.XMin, profile_sketch_lines.BoundBox.YMin
+    alt_profile_sketch_lines = [
+        e
+        for e in solid.Edges
+        if abs(
+            e.CenterOfMass.distanceToPlane(
+                shape.Faces[root_face_index].Surface.Position,
+                shape.Faces[root_face_index].Surface.Axis,
             )
-            * -1
-        ),
-        "Unfold_Profile",
-    )
-    Part.show(
-        projected_bend_lines.translated(
-            Vector(
-                profile_sketch_lines.BoundBox.XMin, profile_sketch_lines.BoundBox.YMin
-            )
-            * -1
-        ),
-        "Bend_Lines",
-    )
+        )
+        < eps
+    ]
+    Part.show(Part.makeCompound(alt_profile_sketch_lines), "alt_profile_sketch")
+    # profile_sketch_lines = get_profile_sketch_lines(
+    #     solid, shape.Faces[root_face].normalAt(0, 0)
+    # )
+    # projected_bend_lines = get_profile_sketch_lines(
+    #     Part.makeCompound(list_of_bend_lines), shape.Faces[root_face].normalAt(0, 0)
+    # )
+    # Part.show(
+    #     profile_sketch_lines.translated(
+    #         Vector(
+    #             profile_sketch_lines.BoundBox.XMin, profile_sketch_lines.BoundBox.YMin
+    #         )
+    #         * -1
+    #     ),
+    #     "Unfold_Profile",
+    # )
+    # Part.show(
+    #     projected_bend_lines.translated(
+    #         Vector(
+    #             profile_sketch_lines.BoundBox.XMin, profile_sketch_lines.BoundBox.YMin
+    #         )
+    #         * -1
+    #     ),
+    #     "Bend_Lines",
+    # )
     return solid
 
 
