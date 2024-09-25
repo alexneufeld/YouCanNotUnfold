@@ -590,7 +590,7 @@ def unfold(shape: Part.Shape, root_face_index: int, k_factor: int) -> Part.Shape
             if "unbend_transform" in node_data[f]
         ]
         # use reduce() to do repeated matrix multiplication
-        # Matrix()*M_1*M_2*...*M_N for N matrices
+        # Matrix() * M_1 * M_2 * ... * M_N for N matrices
         final_mat = reduce(multiply_operator, list_of_matrices, Matrix())
         # bent faces of the input shape are swapped for their unbent versions
         if "unbent_shape" in node_data[face_id]:
@@ -608,12 +608,18 @@ def unfold(shape: Part.Shape, root_face_index: int, k_factor: int) -> Part.Shape
     extrude_vec = (
         shape.Faces[root_face_index].normalAt(0, 0).normalize() * -1 * thickness
     )
-    # multiFuse() is always faster if supplied the simplest possible input shapes
-    # therefore fuse the faces, then extrude them, rather than extruding then fusing
-    flattened_profile = list_of_faces[0].multiFuse(list_of_faces[1:]).removeSplitter()
-    profile_sketch_lines = flattened_profile.Edges
+    solid_components = [f.extrude(extrude_vec) for f in list_of_faces]
+    # note that the multiFuse function can also accept a tolerance/fuzz value argument
+    # In testing, supplying such a value did not change performance
+    solid = solid_components[0].multiFuse(solid_components[1:]).removeSplitter()
+    root_pos = shape.Faces[root_face_index].Surface.Position
+    root_axis = shape.Faces[root_face_index].Surface.Axis
+    profile_sketch_lines = [
+        e
+        for e in solid.Edges
+        if abs(e.CenterOfMass.distanceToPlane(root_pos, root_axis)) < eps
+    ]
     # generate the final shapes
-    solid = flattened_profile.extrude(extrude_vec)
     sketch = Part.makeCompound(profile_sketch_lines)
     bend_lines = Part.makeCompound(list_of_bend_lines)
     return solid, sketch, bend_lines
@@ -632,6 +638,7 @@ if __name__ == "__main__":
     sketch_align_transform = sketch_transform_to_origin(
         sketch_profile, shp.Faces[root_face_index]
     )
+    Part.show(unfolded_shape, selected_object.Label + "_Unfold")
     sketch_profile = sketch_profile.transformed(sketch_align_transform)
     bend_lines = bend_lines.transformed(sketch_align_transform)
     sketch_doc_obj = Part.show(sketch_profile, selected_object.Label + "_UnfoldSketch")
