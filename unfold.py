@@ -476,6 +476,25 @@ def get_profile_sketch_lines(solid: Part.Shape, direction: Vector) -> Part.Shape
     return compound  # .translated(Vector(compound.BoundBox.XMin,compound.BoundBox.YMin)*-1)
 
 
+def sketch_transform_to_origin(sketch: Part.Compound, root_face: Part.Face) -> Matrix:
+    # find the orientation of the root face that puts the most straight lines in line with the x-axis
+    origin = root_face.valueAt(0, 0)
+    x_axis = root_face.valueAt(1, 0) - origin
+    z_axis = root_face.normalAt(0, 0)
+    rotation = Rotation(x_axis, Vector(), z_axis, "ZXY")
+    alignment_transform = Placement(origin, rotation).toMatrix()
+    sketch_aligned_to_xy_plane = sketch.transformed(alignment_transform)
+    # move in x and y so that the bounding box is entirely in the +x, +y quadrant
+    mov_x = -1 * sketch_aligned_to_xy_plane.BoundBox.XMin
+    mov_y = -1 * sketch_aligned_to_xy_plane.BoundBox.YMin
+    mov_z = -1 * sketch_aligned_to_xy_plane.BoundBox.ZMin
+    shift_transform = Placement(Vector(mov_x, mov_y, mov_z), Rotation()).toMatrix()
+    overall_transform = Matrix()
+    overall_transform.transform(Vector(), alignment_transform)
+    overall_transform.transform(Vector(), shift_transform)
+    return overall_transform
+
+
 def unfold(shape: Part.Shape, root_face_index: int, k_factor: int) -> Part.Shape:
     graph_of_sheet_faces = build_graph_of_tangent_faces(shape, root_face_index)
     if not graph_of_sheet_faces:
@@ -596,15 +615,24 @@ def unfold(shape: Part.Shape, root_face_index: int, k_factor: int) -> Part.Shape
     # generate the final shapes
     solid = flattened_profile.extrude(extrude_vec)
     sketch = Part.makeCompound(profile_sketch_lines)
-    return solid, sketch
+    bend_lines = Part.makeCompound(list_of_bend_lines)
+    return solid, sketch, bend_lines
 
 
 if __name__ == "__main__":
-    selection_object = FreeCAD.Gui.Selection.getCompleteSelection()[0]
-    shp = selection_object.Object.Shape
-    root_face = int(selection_object.SubElementNames[0][4:]) - 1
-
-    unfolded_shape, sketch_profile = unfold(shp, root_face, k_factor=0.5)
-
-    Part.show(unfolded_shape, selection_object.Object.Label + "_Unfold")
-    Part.show(sketch_profile, selection_object.Object.Label + "_UnfoldSketch")
+    selection = FreeCAD.Gui.Selection.getCompleteSelection()[0]
+    selected_object = selection.Object
+    object_placement = selected_object.getGlobalPlacement().toMatrix()
+    shp = selected_object.Shape.transformed(object_placement.inverse())
+    root_face_index = int(selection.SubElementNames[0][4:]) - 1
+    unfolded_shape, sketch_profile, bend_lines = unfold(
+        shp, root_face_index, k_factor=0.5
+    )
+    # move the sketch profiles nicely to the origin
+    sketch_align_transform = sketch_transform_to_origin(
+        sketch_profile, shp.Faces[root_face_index]
+    )
+    sketch_profile = sketch_profile.transformed(sketch_align_transform)
+    bend_lines = bend_lines.transformed(sketch_align_transform)
+    Part.show(sketch_profile, selected_object.Label + "_UnfoldSketch")
+    Part.show(bend_lines, selected_object.Label + "_BendLines")
