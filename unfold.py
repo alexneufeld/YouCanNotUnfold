@@ -477,7 +477,7 @@ def get_profile_sketch_lines(solid: Part.Shape, direction: Vector) -> Part.Shape
 
 
 def unfold(shape: Part.Shape, root_face_index: int, k_factor: int) -> Part.Shape:
-    graph_of_sheet_faces = build_graph_of_tangent_faces(shape, root_face)
+    graph_of_sheet_faces = build_graph_of_tangent_faces(shape, root_face_index)
     if not graph_of_sheet_faces:
         errmsg = (
             "No faces were found that are tangent to the selected face. "
@@ -513,7 +513,7 @@ def unfold(shape: Part.Shape, root_face_index: int, k_factor: int) -> Part.Shape
             }[shape.Faces[node].Surface.TypeId],
         )
     lengths = nx.all_pairs_shortest_path_length(spanning_tree)
-    distances_to_root_face = {k: kv for k, kv in lengths}[root_face]
+    distances_to_root_face = {k: kv for k, kv in lengths}[root_face_index]
     for f1, f2, edata in spanning_tree.edges(data=True):
         if distances_to_root_face[f1] <= distances_to_root_face[f2]:
             dg.add_edge(f1, f2, label=edata["label"])
@@ -523,12 +523,18 @@ def unfold(shape: Part.Shape, root_face_index: int, k_factor: int) -> Part.Shape
         "Network of tangent faces:\n" + str(nx.nx_pydot.to_pydot(dg))
     )
     # the digraph should now have everything we need to unfold the shape
-    # unfold bends adjacent to 2 planar faces
+    # for every edge n1--e1-->n2 where n2 is a cylindrical face, must be
+    # fed through our unbending functions with e1 as the stationary edge
     for e in [
         e for e in dg.edges if shape.Faces[e[1]].Surface.TypeId == "Part::GeomCylinder"
     ]:
+        # the bend face is the end-node of the directed edge
         bend_part = shape.Faces[e[1]]
+        # we stored the edge indices as the labels of the graph edges
         edge_before_bend_index = dg.get_edge_data(e[0], e[1])["label"]
+        # check that we aren't trying to unfold across a non-linear reference edge
+        # this condition is reached if the user supplies a part with complex formed
+        # features that have unfoldable-but-tangent faces, for example
         edge_before_bend = shape.Edges[edge_before_bend_index]
         if edge_before_bend.Curve.TypeId != "Part::GeomLine":
             errmsg = (
@@ -537,9 +543,12 @@ def unfold(shape: Part.Shape, root_face_index: int, k_factor: int) -> Part.Shape
                 f" (Edge{edge_before_bend_index + 1})"
             )
             raise RuntimeError(errmsg)
+        # compute the unbend transformations
         alignment_transform, overall_transform, uvref = compute_unbend_transform(
             bend_part, edge_before_bend, thickness, k_factor
         )
+        # determine the unbent face shape from the reference UV position
+        # also get a bend line across the middle of the flattened face
         unbent_face, bend_line = unroll_cylinder(bend_part, uvref, k_factor, thickness)
         # add the transformation and unbend shape to the end node of the edge as attributes
         dg.nodes[e[1]]["unbent_shape"] = unbent_face.transformed(alignment_transform)
@@ -549,72 +558,53 @@ def unfold(shape: Part.Shape, root_face_index: int, k_factor: int) -> Part.Shape
     # so we can combine transformations to position the final shape
     list_of_faces = []
     list_of_bend_lines = []
+    # apply the unbent transformation to all the flattened geometry to bring
+    # it in-plane with the root face
     for face_id, path in nx.shortest_path(dg, source=root_face_index).items():
-        # the path includes the face itself, which we don't need
+        # the path includes the root face itself, which we don't need
         path_to_face = path[:-1]
-        ndat = dg.nodes.data()
+        node_data = dg.nodes.data()
+        # accumulate transformations while traversing from the root face to this face
         list_of_matrices = [
-            ndat[f]["unbend_transform"]
+            node_data[f]["unbend_transform"]
             for f in path_to_face
-            if "unbend_transform" in ndat[f]
+            if "unbend_transform" in node_data[f]
         ]
+        # use reduce() to do repeated matrix multiplication
+        # Matrix()*M_1*M_2*...*M_N for N matrices
         final_mat = reduce(multiply_operator, list_of_matrices, Matrix())
-        if "unbent_shape" in ndat[face_id]:
-            final_face = ndat[face_id]["unbent_shape"]
+        # bent faces of the input shape are swapped for their unbent versions
+        if "unbent_shape" in node_data[face_id]:
+            finalized_face = node_data[face_id]["unbent_shape"]
+        # planer faces of the input shape are returned aligned to the root face,
+        # but otherwise unmodified
         else:
-            final_face = shape.Faces[face_id]
-        if "bend_line" in ndat[face_id]:
-            list_of_bend_lines.append(ndat[face_id]["bend_line"].transformed(final_mat))
-        list_of_faces.append(final_face.transformed(final_mat))
+            finalized_face = shape.Faces[face_id]
+        # also combine all of the bend lines into a list after positioning them correctly
+        if "bend_line" in node_data[face_id]:
+            list_of_bend_lines.append(
+                node_data[face_id]["bend_line"].transformed(final_mat)
+            )
+        list_of_faces.append(finalized_face.transformed(final_mat))
     extrude_vec = (
         shape.Faces[root_face_index].normalAt(0, 0).normalize() * -1 * thickness
     )
-    solid_components = [f.extrude(extrude_vec) for f in list_of_faces]
-    # note that the multiFuse function can also accept a tolerance/fuzz value argument
-    # In testing, supplying such a value did not change performance
-    solid = solid_components[0].multiFuse(solid_components[1:]).removeSplitter()
-    alt_profile_sketch_lines = [
-        e
-        for e in solid.Edges
-        if abs(
-            e.CenterOfMass.distanceToPlane(
-                shape.Faces[root_face_index].Surface.Position,
-                shape.Faces[root_face_index].Surface.Axis,
-            )
-        )
-        < eps
-    ]
-    Part.show(Part.makeCompound(alt_profile_sketch_lines), "alt_profile_sketch")
-    # profile_sketch_lines = get_profile_sketch_lines(
-    #     solid, shape.Faces[root_face].normalAt(0, 0)
-    # )
-    # projected_bend_lines = get_profile_sketch_lines(
-    #     Part.makeCompound(list_of_bend_lines), shape.Faces[root_face].normalAt(0, 0)
-    # )
-    # Part.show(
-    #     profile_sketch_lines.translated(
-    #         Vector(
-    #             profile_sketch_lines.BoundBox.XMin, profile_sketch_lines.BoundBox.YMin
-    #         )
-    #         * -1
-    #     ),
-    #     "Unfold_Profile",
-    # )
-    # Part.show(
-    #     projected_bend_lines.translated(
-    #         Vector(
-    #             profile_sketch_lines.BoundBox.XMin, profile_sketch_lines.BoundBox.YMin
-    #         )
-    #         * -1
-    #     ),
-    #     "Bend_Lines",
-    # )
-    return solid
+    # multiFuse() is always faster if supplied the simplest possible input shapes
+    # therefore fuse the faces, then extrude them, rather than extruding then fusing
+    flattened_profile = list_of_faces[0].multiFuse(list_of_faces[1:]).removeSplitter()
+    profile_sketch_lines = flattened_profile.Edges
+    # generate the final shapes
+    solid = flattened_profile.extrude(extrude_vec)
+    sketch = Part.makeCompound(profile_sketch_lines)
+    return solid, sketch
 
 
 if __name__ == "__main__":
     selection_object = FreeCAD.Gui.Selection.getCompleteSelection()[0]
     shp = selection_object.Object.Shape
     root_face = int(selection_object.SubElementNames[0][4:]) - 1
-    unfolded_shape = unfold(shp, root_face, k_factor=0.5)
+
+    unfolded_shape, sketch_profile = unfold(shp, root_face, k_factor=0.5)
+
     Part.show(unfolded_shape, selection_object.Object.Label + "_Unfold")
+    Part.show(sketch_profile, selection_object.Object.Label + "_UnfoldSketch")
