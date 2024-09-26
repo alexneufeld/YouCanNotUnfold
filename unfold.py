@@ -369,17 +369,30 @@ def unroll_cylinder(
     wire = [Part.Wire(x) for x in Part.sortEdges(flattened_edges)]
     face = Part.makeFace(wire, "Part::FaceMakerBullseye")
     mirror_base_pos = Vector(overall_height / 2, bend_allowance / 2)
+    # Part.show(face, f"face_{refpos}")
+
+    flip = [
+        lambda x: x,
+        lambda x: x.mirror(mirror_base_pos, Vector(0, 1)),
+        lambda x: x.mirror(mirror_base_pos, Vector(0, 1)).mirror(
+            mirror_base_pos, Vector(1, 0)
+        ),
+        lambda x: x.mirror(mirror_base_pos, Vector(1, 0)),
+    ]
+    from itertools import permutations
+
+    flip_options = list(permutations([0, 1, 2, 3], 4))
+    flip_order = flip_options[1]
     match refpos:
         case UVRef.BOTTOM_LEFT:
-            fixed_face = face.mirror(mirror_base_pos, Vector(1, 0))
+            fixed_face = flip[flip_order[0]](face)
         case UVRef.BOTTOM_RIGHT:
-            fixed_face = face
+            fixed_face = flip[flip_order[1]](face)
         case UVRef.TOP_LEFT:
-            fixed_face = face.mirror(mirror_base_pos, Vector(0, 1)).mirror(
-                mirror_base_pos, Vector(1, 0)
-            )
+            fixed_face = flip[flip_order[2]](face)
         case UVRef.TOP_RIGHT:
-            fixed_face = face.mirror(mirror_base_pos, Vector(0, 1))
+            fixed_face = flip[flip_order[3]](face)
+
     bent_volume = fixed_face.translated(Vector(0, 0, -0.5)).extrude(Vector(0, 0, 1))
     half_bend_width = Vector(0.55 * (vmax - vmin), 0)
     bend_line = bent_volume.common(
