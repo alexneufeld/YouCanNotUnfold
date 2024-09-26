@@ -1,11 +1,11 @@
-import FreeCAD
-import FreeCADGui
-import Part
-from itertools import combinations
 from functools import lru_cache
+from hashlib import md5
+from itertools import combinations
 from math import log10
 from statistics import mode
-from hashlib import md5
+
+import FreeCAD
+import Part
 
 eps = FreeCAD.Base.Precision.approximation()
 
@@ -79,8 +79,8 @@ def unRemoveSplitter(shp: Part.Shape) -> Part.Shape:
         if isinstance(face.Surface, Part.Plane):
             # add splitters as needed
             if len(face.Edges) > 4:  # and doesnot_have_holes(face):
-                # the thickness of the sheet should be the length of the shortest straight edge on this face
-                # sheet_thickness = min(sorted([e.Length for e in face.Edges if isinstance(e.Curve, Part.Line)]))
+                # the thickness of the sheet should be the length of the shortest
+                # straight edge on this face
                 existing_straight_edges = [
                     straight_edge_hash(e)
                     for e in face.Edges
@@ -110,14 +110,12 @@ def unRemoveSplitter(shp: Part.Shape) -> Part.Shape:
 
 
 def removeSplitterPoints(shp: Part.Shape) -> None:
-    # we are targeting circular and/or straight edges that have at least one vertex that is coincident to only 2 edges in the overall shape
+    # we are targeting circular and/or straight edges that have at least one vertex
+    # that is coincident to only 2 edges in the overall shape
     new_faces = []
     for face in shp.Faces:
         circular_edges = [e for e in face.Edges if isinstance(e.Curve, Part.Circle)]
-        if circular_edges and (
-            isinstance(face.Surface, Part.Plane)
-            or isinstance(face.Surface, Part.Cylinder)
-        ):
+        if circular_edges and (isinstance(face.Surface, (Part.Plane, Part.Cylinder))):
             new_edges = [e for e in face.Edges]
             for c1, c2 in combinations(circular_edges, 2):
                 if (
@@ -169,7 +167,6 @@ def removeSplitterPoints(shp: Part.Shape) -> None:
             if len(new_edges) != len(face.Edges):
                 if isinstance(face.Surface, Part.Plane):
                     # face is planar
-                    # print(new_edges)
                     new_faces.append(
                         Part.makeFace(
                             Part.Wire(Part.sortEdges(new_edges)[0]),
@@ -181,13 +178,10 @@ def removeSplitterPoints(shp: Part.Shape) -> None:
                     surface_to_cut = face.Surface
                     wire = Part.Wire(Part.sortEdges(new_edges)[0])
                     # what the fuck
-                    # Part.show(surface_to_cut.toShape().generalFuse(wire)[0], "genfuse")
                     res = sorted(
                         surface_to_cut.toShape().generalFuse(wire)[0].Faces,
                         key=lambda f: abs(f.Area - face.Area),
                     )[0]
-                    # Part.show(Part.makeCompound([surface_to_cut, wire]), f"CompoundToCut_{len(new_edges)}_{len(face.Edges)}")
-                    # Part.show(res)
                     new_faces.append(res)
             else:
                 new_faces.append(face)
@@ -195,11 +189,3 @@ def removeSplitterPoints(shp: Part.Shape) -> None:
             new_faces.append(face)
 
     return Part.makeSolid(Part.Shell(new_faces))
-
-
-if __name__ == "__main__":
-    sel = FreeCADGui.Selection.getSelection()[0]
-    Part.show(unRemoveSplitter(sel.Shape))
-    # Part.show(unRemoveSplitter(removeSplitterPoints(sel.Shape)))
-    # Part.show(removeSplitterPoints(sel.Shape))
-    # print(f"Estimated sheet metal thickness: {estimate_thickness_from_cylinders(sel.Shape)}")

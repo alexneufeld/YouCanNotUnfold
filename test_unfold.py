@@ -6,12 +6,14 @@ if "FREECADPATH" in os.environ:
 else:
     raise RuntimeError("Please specify the FREECADPATH environment variable")
 
+from math import sqrt
+from unittest import TestCase
+
 import FreeCAD
 import Part
-import unfold
-from unittest import TestCase
 from FreeCAD import Vector
-from math import sqrt
+
+import unfold
 
 # used when comparing positions in 3D space
 eps = FreeCAD.Base.Precision.approximation()
@@ -28,7 +30,8 @@ class TestIsFacesTangent(TestCase):
         # different planes aren't tangent
         self.assertFalse(unfold.is_faces_tangent(p1, p3))
 
-        # planes offset by less than FreeCAD's equality tolerance are still considered tangent
+        # planes offset by less than FreeCAD's equality tolerance are still
+        # considered tangent
         self.assertTrue(unfold.is_faces_tangent(p1, p2))
 
     def test_plane_cylinder(self):
