@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 ###################################################################################
 #
 #  unfold.py
@@ -23,19 +22,19 @@
 #
 ###################################################################################
 
-import FreeCAD
-import Part
-import networkx as nx
-from FreeCAD import Vector, Matrix, Rotation, Placement
-from TechDraw import projectEx as project_shape_to_plane
-from Draft import makeSketch
-from math import radians, degrees, log10
 from enum import Enum, auto
-from statistics import mode, StatisticsError
-from itertools import combinations
 from functools import reduce
+from itertools import combinations
+from math import degrees, log10, radians
 from operator import mul as multiply_operator
+from statistics import StatisticsError, mode
 
+import FreeCAD
+import networkx as nx
+import Part
+from Draft import makeSketch
+from FreeCAD import Matrix, Placement, Rotation, Vector
+from TechDraw import projectEx as project_shape_to_plane
 
 # used when comparing positions in 3D space
 eps = FreeCAD.Base.Precision.approximation()
@@ -338,9 +337,7 @@ def unroll_cylinder(
     flattened_edges = []
     for e in cylindrical_face.Edges:
         edge_on_surface, e_param_min, e_param_max = cylindrical_face.curveOnSurface(e)
-        if isinstance(edge_on_surface, Part.Geom2d.Line2d) or isinstance(
-            edge_on_surface, Part.Geom2d.Line2dSegment
-        ):
+        if isinstance(edge_on_surface, (Part.Geom2d.Line2d, Part.Geom2d.Line2dSegment)):
             v1 = edge_on_surface.value(e_param_min)
             y1, x1 = v1.x - umin, v1.y - vmin
             v2 = edge_on_surface.value(e_param_max)
@@ -507,11 +504,12 @@ def get_profile_sketch_lines(solid: Part.Shape, direction: Vector) -> Part.Shape
         if not group.isNull():
             edges.append(group)
     compound = Part.makeCompound(edges)
-    return compound  # .translated(Vector(compound.BoundBox.XMin,compound.BoundBox.YMin)*-1)
+    return compound
 
 
 def sketch_transform_to_origin(sketch: Part.Compound, root_face: Part.Face) -> Matrix:
-    # find the orientation of the root face that puts the most straight lines in line with the x-axis
+    # find the orientation of the root face that puts the most straight
+    # lines in line with the x-axis
     origin = root_face.valueAt(0, 0)
     x_axis = root_face.valueAt(1, 0) - origin
     z_axis = root_face.normalAt(0, 0)
@@ -603,7 +601,8 @@ def unfold(shape: Part.Shape, root_face_index: int, k_factor: int) -> Part.Shape
         # determine the unbent face shape from the reference UV position
         # also get a bend line across the middle of the flattened face
         unbent_face, bend_line = unroll_cylinder(bend_part, uvref, k_factor, thickness)
-        # add the transformation and unbend shape to the end node of the edge as attributes
+        # add the transformation and unbend shape to the end node of the edge
+        # as attributes
         dg.nodes[e[1]]["unbent_shape"] = unbent_face.transformed(alignment_transform)
         dg.nodes[e[1]]["unbend_transform"] = overall_transform
         dg.nodes[e[1]]["bend_line"] = bend_line.transformed(alignment_transform)
@@ -633,7 +632,8 @@ def unfold(shape: Part.Shape, root_face_index: int, k_factor: int) -> Part.Shape
         # but otherwise unmodified
         else:
             finalized_face = shape.Faces[face_id]
-        # also combine all of the bend lines into a list after positioning them correctly
+        # also combine all of the bend lines into a list after positioning
+        # them correctly
         if "bend_line" in node_data[face_id]:
             list_of_bend_lines.append(
                 node_data[face_id]["bend_line"].transformed(final_mat)
@@ -643,8 +643,8 @@ def unfold(shape: Part.Shape, root_face_index: int, k_factor: int) -> Part.Shape
         shape.Faces[root_face_index].normalAt(0, 0).normalize() * -1 * thickness
     )
     solid_components = [f.extrude(extrude_vec) for f in list_of_faces]
-    # note that the multiFuse function can also accept a tolerance/fuzz value argument
-    # In testing, supplying such a value did not change performance
+    # note that the multiFuse function can also accept a tolerance/fuzz value
+    # argument. In testing, supplying such a value did not change performance
     solid = solid_components[0].multiFuse(solid_components[1:]).removeSplitter()
     bend_lines = Part.makeCompound(list_of_bend_lines)
     return solid, bend_lines
@@ -661,7 +661,8 @@ def convert_edges_to_sketch(
 
 
 def gui_unfold() -> None:
-    # the user must select a single flat face of a sheet metal part in the active document
+    # the user must select a single flat face of a sheet metal part in the
+    # active document
     selection = FreeCAD.Gui.Selection.getCompleteSelection()[0]
     selected_object = selection.Object
     object_placement = selected_object.getGlobalPlacement().toMatrix()
