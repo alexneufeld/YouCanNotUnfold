@@ -696,6 +696,7 @@ def gui_unfold():
     )
     bend_lines_doc_obj.ViewObject.LineColor = (255, 0, 0, 0)
     bend_lines_doc_obj.ViewObject.PointColor = (255, 0, 0, 0)
+    bend_lines_doc_obj.ViewObject.DrawStyle = "Dashdot"
     # inner lines are sometimes not present
     inner_wires = [
         w for w in top_face.Wires if w.hashCode() != sketch_profile.hashCode()
