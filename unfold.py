@@ -383,13 +383,13 @@ def unroll_cylinder(
             fixed_face = face.mirror(mirror_base_pos, Vector(0, 1)).mirror(
                 mirror_base_pos, Vector(1, 0)
             )
-    bend_line = (
-        fixed_face.translated(Vector(0, 0, -0.5))
-        .extrude(Vector(0, 0, 1))
-        .common(Part.Line(mirror_base_pos, mirror_base_pos - Vector(1, 0)))
+    bent_volume = fixed_face.translated(Vector(0, 0, -0.5)).extrude(Vector(0, 0, 1))
+    half_bend_width = Vector(0.55 * (vmax - vmin), 0)
+    bend_line = bent_volume.common(
+        Part.makeLine(
+            mirror_base_pos + half_bend_width, mirror_base_pos - half_bend_width
+        )
     )
-    # Part.show(fixed_face, "fixed_face")
-    # Part.show(bend_line, "bend_line")
     return fixed_face, bend_line
 
 
