@@ -374,15 +374,15 @@ def unroll_cylinder(
     mirror_base_pos = Vector(overall_height / 2, bend_allowance / 2)
     match refpos:
         case UVRef.BOTTOM_LEFT:
-            fixed_face = face
-        case UVRef.BOTTOM_RIGHT:
             fixed_face = face.mirror(mirror_base_pos, Vector(1, 0))
+        case UVRef.BOTTOM_RIGHT:
+            fixed_face = face
         case UVRef.TOP_LEFT:
-            fixed_face = face.mirror(mirror_base_pos, Vector(0, 1))
-        case UVRef.TOP_RIGHT:
             fixed_face = face.mirror(mirror_base_pos, Vector(0, 1)).mirror(
                 mirror_base_pos, Vector(1, 0)
             )
+        case UVRef.TOP_RIGHT:
+            fixed_face = face.mirror(mirror_base_pos, Vector(0, 1))
     bent_volume = fixed_face.translated(Vector(0, 0, -0.5)).extrude(Vector(0, 0, 1))
     half_bend_width = Vector(0.55 * (vmax - vmin), 0)
     bend_line = bent_volume.common(
