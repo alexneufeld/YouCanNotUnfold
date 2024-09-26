@@ -669,15 +669,11 @@ def gui_unfold():
         if f.normalAt(0, 0).getAngle(root_normal) < eps_angular
     ][0]
     sketch_profile = top_face.OuterWire
-    inner_wires = Part.makeCompound(
-        [w for w in top_face.Wires if w.hashCode() != sketch_profile.hashCode()]
-    )
     # move the sketch profiles nicely to the origin
     sketch_align_transform = sketch_transform_to_origin(
         sketch_profile, shp.Faces[root_face_index]
     )
     sketch_profile = sketch_profile.transformed(sketch_align_transform)
-    inner_lines = inner_wires.transformed(sketch_align_transform)
     bend_lines = bend_lines.transformed(sketch_align_transform)
     # show objects in the active document
     unfold_doc_obj = Part.show(unfolded_shape, selected_object.Label + "_Unfold")
@@ -693,11 +689,17 @@ def gui_unfold():
     )
     bend_lines_doc_obj.ViewObject.LineColor = (255, 0, 0, 0)
     bend_lines_doc_obj.ViewObject.PointColor = (255, 0, 0, 0)
-    inner_lines_doc_obj = convert_edges_to_sketch(
-        inner_lines, selected_object.Label + "_InnerLines"
-    )
-    inner_lines_doc_obj.ViewObject.LineColor = (255, 255, 0, 0)
-    inner_lines_doc_obj.ViewObject.PointColor = (255, 255, 0, 0)
+    # inner lines are sometimes not present
+    inner_wires = [
+        w for w in top_face.Wires if w.hashCode() != sketch_profile.hashCode()
+    ]
+    if inner_wires:
+        inner_lines = Part.makeCompound(inner_wires).transformed(sketch_align_transform)
+        inner_lines_doc_obj = convert_edges_to_sketch(
+            inner_lines, selected_object.Label + "_InnerLines"
+        )
+        inner_lines_doc_obj.ViewObject.LineColor = (255, 255, 0, 0)
+        inner_lines_doc_obj.ViewObject.PointColor = (255, 255, 0, 0)
 
 
 if __name__ == "__main__":
