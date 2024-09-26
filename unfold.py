@@ -628,7 +628,7 @@ def convert_edges_to_sketch(
     return sk
 
 
-if __name__ == "__main__":
+def gui_unfold():
     # the user must select a single flat face of a sheet metal part in the active document
     selection = FreeCAD.Gui.Selection.getCompleteSelection()[0]
     selected_object = selection.Object
@@ -673,3 +673,7 @@ if __name__ == "__main__":
     )
     inner_lines_doc_obj.ViewObject.LineColor = (255, 255, 0, 0)
     inner_lines_doc_obj.ViewObject.PointColor = (255, 255, 0, 0)
+
+
+if __name__ == "__main__":
+    gui_unfold()
