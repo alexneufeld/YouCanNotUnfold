@@ -3,6 +3,7 @@ import Part
 import networkx as nx
 from FreeCAD import Vector, Matrix, Rotation, Placement
 from TechDraw import projectEx as project_shape_to_plane
+from Draft import makeSketch
 from math import radians, degrees, log10
 from enum import Enum, auto
 from statistics import mode, StatisticsError
@@ -466,6 +467,7 @@ def compute_unbend_transform(
 
 
 def get_profile_sketch_lines(solid: Part.Shape, direction: Vector) -> Part.Shape:
+    # this is a slow but robust method of sketch profile extraction
     # ref: https://github.com/FreeCAD/FreeCAD/blob/main/src/Mod/Draft/draftobjects/shape2dview.py
     raw_output = project_shape_to_plane(solid, direction)
     edges = []
@@ -612,38 +614,62 @@ def unfold(shape: Part.Shape, root_face_index: int, k_factor: int) -> Part.Shape
     # note that the multiFuse function can also accept a tolerance/fuzz value argument
     # In testing, supplying such a value did not change performance
     solid = solid_components[0].multiFuse(solid_components[1:]).removeSplitter()
-    root_pos = shape.Faces[root_face_index].Surface.Position
-    root_axis = shape.Faces[root_face_index].Surface.Axis
-    profile_sketch_lines = [
-        e
-        for e in solid.Edges
-        if abs(e.CenterOfMass.distanceToPlane(root_pos, root_axis)) < eps
-    ]
-    # generate the final shapes
-    sketch = Part.makeCompound(profile_sketch_lines)
     bend_lines = Part.makeCompound(list_of_bend_lines)
-    return solid, sketch, bend_lines
+    return solid, bend_lines
+
+
+def convert_edges_to_sketch(
+    edges: list[Part.Edge], object_name: str
+) -> FreeCAD.DocumentObject:
+    sk = makeSketch(
+        edges, autoconstraints=True, addTo=None, delete=False, name=object_name
+    )
+    sk.Label = object_name
+    return sk
 
 
 if __name__ == "__main__":
+    # the user must select a single flat face of a sheet metal part in the active document
     selection = FreeCAD.Gui.Selection.getCompleteSelection()[0]
     selected_object = selection.Object
     object_placement = selected_object.getGlobalPlacement().toMatrix()
     shp = selected_object.Shape.transformed(object_placement.inverse())
     root_face_index = int(selection.SubElementNames[0][4:]) - 1
-    unfolded_shape, sketch_profile, bend_lines = unfold(
-        shp, root_face_index, k_factor=0.5
+    unfolded_shape, bend_lines = unfold(shp, root_face_index, k_factor=0.5)
+    # extract sketch lines from the topmost flattened face
+    root_normal = shp.Faces[root_face_index].normalAt(0, 0)
+    top_face = [
+        f
+        for f in unfolded_shape.Faces
+        if f.normalAt(0, 0).getAngle(root_normal) < eps_angular
+    ][0]
+    sketch_profile = top_face.OuterWire
+    inner_wires = Part.makeCompound(
+        [w for w in top_face.Wires if w.hashCode() != sketch_profile.hashCode()]
     )
     # move the sketch profiles nicely to the origin
     sketch_align_transform = sketch_transform_to_origin(
         sketch_profile, shp.Faces[root_face_index]
     )
-    Part.show(unfolded_shape, selected_object.Label + "_Unfold")
     sketch_profile = sketch_profile.transformed(sketch_align_transform)
+    inner_lines = inner_wires.transformed(sketch_align_transform)
     bend_lines = bend_lines.transformed(sketch_align_transform)
-    sketch_doc_obj = Part.show(sketch_profile, selected_object.Label + "_UnfoldSketch")
+    # show objects in the active document
+    unfold_doc_obj = Part.show(unfolded_shape, selected_object.Label + "_Unfold")
+    unfold_doc_obj.ViewObject.Transparency = 70
+    unfold_doc_obj.Placement = Placement(object_placement)
+    sketch_doc_obj = convert_edges_to_sketch(
+        sketch_profile.Edges, selected_object.Label + "_UnfoldProfile"
+    )
     sketch_doc_obj.ViewObject.LineColor = (0, 85, 255, 0)
     sketch_doc_obj.ViewObject.PointColor = (0, 85, 255, 0)
-    bend_lines_doc_obj = Part.show(bend_lines, selected_object.Label + "_BendLines")
+    bend_lines_doc_obj = convert_edges_to_sketch(
+        bend_lines, selected_object.Label + "_BendLines"
+    )
     bend_lines_doc_obj.ViewObject.LineColor = (255, 0, 0, 0)
     bend_lines_doc_obj.ViewObject.PointColor = (255, 0, 0, 0)
+    inner_lines_doc_obj = convert_edges_to_sketch(
+        inner_lines, selected_object.Label + "_InnerLines"
+    )
+    inner_lines_doc_obj.ViewObject.LineColor = (255, 255, 0, 0)
+    inner_lines_doc_obj.ViewObject.PointColor = (255, 255, 0, 0)
