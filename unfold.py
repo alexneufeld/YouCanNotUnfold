@@ -335,10 +335,12 @@ def unroll_cylinder(
         bend_allowance = (radius - thickness * (1 - k_factor)) * bend_angle
     overall_height = abs(vmax - vmin)
     y_scale_factor = radius * bend_allowance / (radius * bend_angle)
-    wire = Part.Wire()
+    flattened_edges = []
     for e in cylindrical_face.Edges:
         edge_on_surface, e_param_min, e_param_max = cylindrical_face.curveOnSurface(e)
-        if isinstance(edge_on_surface, Part.Geom2d.Line2d):
+        if isinstance(edge_on_surface, Part.Geom2d.Line2d) or isinstance(
+            edge_on_surface, Part.Geom2d.Line2dSegment
+        ):
             v1 = edge_on_surface.value(e_param_min)
             y1, x1 = v1.x - umin, v1.y - vmin
             v2 = edge_on_surface.value(e_param_max)
@@ -346,7 +348,7 @@ def unroll_cylinder(
             line = Part.makeLine(
                 Vector(x1, y1 * y_scale_factor), Vector(x2, y2 * y_scale_factor)
             )
-            wire.add(line)
+            flattened_edges.append(line)
         elif isinstance(edge_on_surface, Part.Geom2d.BSplineCurve2d):
             poles_and_weights = edge_on_surface.getPolesAndWeights()
             poles = [
@@ -356,12 +358,18 @@ def unroll_cylinder(
             weights = [w for _, _, w in poles_and_weights]
             spline = Part.BSplineCurve()
             spline.buildFromPolesMultsKnots(poles=poles, weights=weights)
-            wire.add(spline.toShape())
+            flattened_edges.append(spline.toShape())
         else:
             errmsg = (
                 f"Unhandled curve type when unfolding face: {type(edge_on_surface)}"
             )
             raise TypeError(errmsg)
+    # the edges recovered from cylindrical_face.Edges are likely to not be
+    # ordered and oriented tip-to-tail, which are requirements for the
+    # FaceMaker classes to produce valid output. Running Part.sortEdges
+    # fixes this. Interestingly, shapes exported as .tep files then imported
+    # back into FreeCAD always have nicely sorted edges for each face...
+    wire = [Part.Wire(x) for x in Part.sortEdges(flattened_edges)]
     face = Part.makeFace(wire, "Part::FaceMakerBullseye")
     mirror_base_pos = Vector(overall_height / 2, bend_allowance / 2)
     match refpos:
@@ -379,7 +387,6 @@ def unroll_cylinder(
         fixed_face.translated(Vector(0, 0, -0.5))
         .extrude(Vector(0, 0, 1))
         .common(Part.Line(mirror_base_pos, mirror_base_pos - Vector(1, 0)))
-        .copy()
     )
     # Part.show(fixed_face, "fixed_face")
     # Part.show(bend_line, "bend_line")
