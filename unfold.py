@@ -43,7 +43,7 @@ eps = FreeCAD.Base.Precision.approximation()
 eps_angular = FreeCAD.Base.Precision.angular()
 
 
-def round_vector(vec: FreeCAD.Vector, ndigits: int = None) -> FreeCAD.Vector:
+def round_vector(vec: FreeCAD.Vector, ndigits: int) -> FreeCAD.Vector:
     return FreeCAD.Vector(*[round(d, ndigits) for d in vec])
 
 
@@ -282,7 +282,7 @@ def is_faces_tangent(f1: Part.Face, f2: Part.Face) -> bool:
             return False
 
 
-def build_graph_of_tangent_faces(shp: Part.Shape, root: int):
+def build_graph_of_tangent_faces(shp: Part.Shape, root: int) -> nx.Graph | None:
     # created a simple undirected graph object
     gr = nx.Graph()
     # weird shape mutability nonsense? -> have to use indexes, because the
@@ -395,7 +395,7 @@ def unroll_cylinder(
 
 def compute_unbend_transform(
     bent_face: Part.Face, base_edge: Part.Edge, thickness: float, k_factor: float
-) -> tuple:
+) -> tuple[Matrix, Matrix, UVRef]:
     # for cylindrical surfaces, the u-parameter corresponds to the radial
     # direction, and the u-period is the radial boundary of the cylindrical
     # patch. The v-period corresponds to the axial direction.
@@ -660,7 +660,7 @@ def convert_edges_to_sketch(
     return sk
 
 
-def gui_unfold():
+def gui_unfold() -> None:
     # the user must select a single flat face of a sheet metal part in the active document
     selection = FreeCAD.Gui.Selection.getCompleteSelection()[0]
     selected_object = selection.Object
