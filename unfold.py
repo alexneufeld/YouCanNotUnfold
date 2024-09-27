@@ -45,6 +45,9 @@ eps_angular = FreeCAD.Base.Precision.angular()
 def round_vector(vec: FreeCAD.Vector, ndigits: int) -> FreeCAD.Vector:
     return FreeCAD.Vector(*[round(d, ndigits) for d in vec])
 
+def rvec(x,y):
+    num_places = 2
+    return Vector(round(x, num_places),round(y, num_places))
 
 def estimate_thickness_from_cylinders(shp: Part.Shape) -> float:
     num_places = abs(int(log10(eps)))
@@ -328,22 +331,69 @@ def unroll_cylinder(
     bend_angle = umax - umin
     radius = cylindrical_face.Surface.Radius
     bend_direction = {"Reversed": "Up", "Forward": "Down"}[cylindrical_face.Orientation]
+    print(f"{radius=}")
+    print(f"{k_factor=}")
+    print(f"{thickness=}")
+    print(f"{bend_angle=}")
+    print(f"{bend_direction=}")
+
+    curv_a, curv_b = cylindrical_face.curvatureAt(0,0)
+    if curv_a < 0 and abs(curv_b) < eps:
+        if cylindrical_face.Orientation == "Forward":
+            bend_direction = "Down"
+        else:
+            bend_direction = "Up"
+    elif curv_b > 0 and abs(curv_a) < eps:
+        if cylindrical_face.Orientation == "Forward":
+            bend_direction = "Up"
+        else:
+            bend_direction = "Down"
+    else:
+        errmsg = "WTF"
+        raise RuntimeError(errmsg)
+
     if bend_direction == "Up":
         bend_allowance = (radius + k_factor * thickness) * bend_angle
     else:
         bend_allowance = (radius - thickness * (1 - k_factor)) * bend_angle
     overall_height = abs(vmax - vmin)
+    # print(f"{(radius * bend_allowance / (radius * bend_angle))=}")
     y_scale_factor = radius * bend_allowance / (radius * bend_angle)
     flattened_edges = []
     for e in cylindrical_face.Edges:
+        # Part.show(e, "edge")
         edge_on_surface, e_param_min, e_param_max = cylindrical_face.curveOnSurface(e)
-        if isinstance(edge_on_surface, (Part.Geom2d.Line2d, Part.Geom2d.Line2dSegment)):
+        # print(f"{edge_on_surface.Length=}")
+        # print(f"{e_param_max=}")
+        # print(f"{e_param_min=}")
+        # print(f"{type(edge_on_surface)=}")
+        if isinstance(edge_on_surface, Part.Geom2d.Line2d):
+            # print(f"{edge_on_surface.Direction=}")
+            # print(f"{edge_on_surface.Closed=}")
+            # print(f"{edge_on_surface.Continuity=}")
+            # print(f"{edge_on_surface.FirstParameter=}")
+            # print(f"{edge_on_surface.LastParameter=}")
+            # print(f"{edge_on_surface.value(e_param_min)=}")
+            # print(f"{edge_on_surface.value(e_param_max)=}")
+            # print(f"{edge_on_surface.value(1000)=}")
             v1 = edge_on_surface.value(e_param_min)
             y1, x1 = v1.x - umin, v1.y - vmin
+            # print(f"{(x1, y1)=}")
             v2 = edge_on_surface.value(e_param_max)
             y2, x2 = v2.x - umin, v2.y - vmin
+            # print(f"{(x2, y2)=}")
+            # print(f"{y_scale_factor=}")
             line = Part.makeLine(
-                Vector(x1, y1 * y_scale_factor), Vector(x2, y2 * y_scale_factor)
+                rvec(x1, y1 * y_scale_factor), rvec(x2, y2 * y_scale_factor)
+            )
+            flattened_edges.append(line)
+        elif isinstance(edge_on_surface, Part.Geom2d.Line2dSegment):
+            v1 = edge_on_surface.StartPoint
+            y1, x1 = v1.x - umin, v1.y - vmin
+            v2 = edge_on_surface.EndPoint
+            y2, x2 = v2.x - umin, v2.y - vmin
+            line = Part.makeLine(
+                rvec(x1, y1 * y_scale_factor), rvec(x2, y2 * y_scale_factor)
             )
             flattened_edges.append(line)
         elif isinstance(edge_on_surface, Part.Geom2d.BSplineCurve2d):
@@ -364,9 +414,15 @@ def unroll_cylinder(
     # the edges recovered from cylindrical_face.Edges are likely to not be
     # ordered and oriented tip-to-tail, which are requirements for the
     # FaceMaker classes to produce valid output. Running Part.sortEdges
-    # fixes this. Interestingly, shapes exported as .tep files then imported
+    # fixes this. Interestingly, shapes exported as .step files then imported
     # back into FreeCAD always have nicely sorted edges for each face...
-    wire = [Part.Wire(x) for x in Part.sortEdges(flattened_edges)]
+    Part.show(Part.makeCompound(flattened_edges), "flattened_edges")
+    list_of_list_of_edges = Part.sortEdges(Part.makeCompound(flattened_edges).Edges, 0.1)
+    print(f"{list_of_list_of_edges=}")
+    # wire = [Part.Wire(x) for x in list_of_list_of_edges]
+    wire = Part.Wire(flattened_edges)
+    # print(f"{len(wire)=}")
+    Part.show(wire, "the_wire")
     face = Part.makeFace(wire, "Part::FaceMakerBullseye")
     mirror_base_pos = Vector(overall_height / 2, bend_allowance / 2)
     # Part.show(face, f"face_{refpos}")
