@@ -81,7 +81,7 @@ class EstimateThickness:
                 )
                 key = (*cleaned_axis, *cleaned_center)
                 if key in curv_map:
-                    curv_map[key].append(abs(face.Surface.Radius))
+                    curv_map[key].append(face.Surface.Radius)
                 else:
                     curv_map[key] = [
                         face.Surface.Radius,
