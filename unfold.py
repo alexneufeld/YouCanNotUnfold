@@ -891,7 +891,6 @@ def gui_unfold() -> None:
         hole_lines_doc_obj.ViewObject.LineColor = (85, 255, 0, 0)
         hole_lines_doc_obj.ViewObject.PointColor = (85, 255, 0, 0)
         grp.addObject(hole_lines_doc_obj)
-    doc.recompute()
 
 
 if __name__ == "__main__":
