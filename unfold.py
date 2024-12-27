@@ -86,12 +86,12 @@ class EstimateThickness:
                     curv_map[key] = [
                         face.Surface.Radius,
                     ]
-        combined_list_of_thicknesses = []
-        for radset in curv_map.values():
-            if len(radset) > 1:
-                for r1, r2 in combinations(radset, 2):
-                    if (val := abs(r1 - r2)) > eps:
-                        combined_list_of_thicknesses.append(val)
+        combined_list_of_thicknesses = [
+            val
+            for radset in curv_map.values() if len(radset) > 1
+            for r1, r2 in combinations(radset, 2)
+            if (val := abs(r1 - r2)) > eps
+        ]
         try:
             thickness_value = mode(combined_list_of_thicknesses)
             return thickness_value
@@ -424,10 +424,7 @@ class SketchExtraction:
         # this is a slow but robust method of sketch profile extraction
         # ref: https://github.com/FreeCAD/FreeCAD/blob/main/src/Mod/Draft/draftobjects/shape2dview.py
         raw_output = project_shape_to_plane(solid, direction)
-        edges = []
-        for group in raw_output[0:5]:
-            if not group.isNull():
-                edges.append(group)
+        edges = [group for group in raw_output[:5] if not group.isNull()]
         compound = Part.makeCompound(edges)
         return compound
 
