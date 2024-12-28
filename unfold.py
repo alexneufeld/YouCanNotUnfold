@@ -88,7 +88,8 @@ class EstimateThickness:
                     ]
         combined_list_of_thicknesses = [
             val
-            for radset in curv_map.values() if len(radset) > 1
+            for radset in curv_map.values()
+            if len(radset) > 1
             for r1, r2 in combinations(radset, 2)
             if (val := abs(r1 - r2)) > eps
         ]
@@ -227,7 +228,7 @@ class TangentFaces:
         return abs(abs(s.Center.distanceToPlane(p.Position, p.Axis)) - s.Radius) < eps
 
     @staticmethod
-    def compare_sphere_torus(s: Part.Sphere, t: Part.Toroid) -> bool:
+    def compare_torus_sphere(t: Part.Toroid, s: Part.Sphere) -> bool:
         return (
             s.Center.distanceToPoint(t.Center) < eps
             and (
@@ -344,105 +345,104 @@ class TangentFaces:
         )
 
     @staticmethod
+    def compare_plane_extrusion(p: Part.Plane, ex: Part.SurfaceOfExtrusion) -> bool:
+        return False  # TODO
+
+    @staticmethod
+    def compare_cylinder_extrusion(
+        c: Part.Cylinder, ex: Part.SurfaceOfExtrusion
+    ) -> bool:
+        return False  # TODO
+
+    @staticmethod
+    def compare_torus_extrusion(t: Part.Toroid, ex: Part.SurfaceOfExtrusion) -> bool:
+        return False  # TODO
+
+    @staticmethod
+    def compare_sphere_extrusion(s: Part.Sphere, ex: Part.SurfaceOfExtrusion) -> bool:
+        return False  # TODO
+
+    @staticmethod
+    def compare_extrusion_extrusion(
+        ex1: Part.SurfaceOfExtrusion, ex2: Part.SurfaceOfExtrusion
+    ) -> bool:
+        return False  # TODO
+
+    @staticmethod
+    def compare_extrusion_cone(ex: Part.SurfaceOfExtrusion, cn: Part.Cone) -> bool:
+        return False  # TODO
+
+    @staticmethod
     def compare(f1: Part.Face, f2: Part.Face) -> bool:
+        # order types to simplify pattern matching
+        type1 = f1.Surface.TypeId
+        type2 = f2.Surface.TypeId
+        order = [
+            "Part::GeomPlane",
+            "Part::GeomCylinder",
+            "Part::GeomToroid",
+            "Part::GeomSphere",
+            "Part::GeomSurfaceOfExtrusion",
+            "Part::GeomCone",
+        ]
+        needs_swap = (
+            type1 in order
+            and type2 in order
+            and order.index(type1) > order.index(type2)
+        )
+        if needs_swap:
+            f2, f1 = f1 = f2
         cls = TangentFaces
-        match f1.Surface.TypeId:
-            case "Part::GeomPlane":
-                match f2.Surface.TypeId:
-                    case "Part::GeomPlane":
-                        return cls.compare_plane_plane(f1.Surface, f2.Surface)
-                    case "Part::GeomCylinder":
-                        return cls.compare_plane_cylinder(f1.Surface, f2.Surface)
-                    case "Part::GeomToroid":
-                        return cls.compare_plane_torus(f1.Surface, f2.Surface)
-                    case "Part::GeomSphere":
-                        return cls.compare_plane_sphere(f1.Surface, f2.Surface)
-                    case "Part::GeomSurfaceOfExtrusion":
-                        return False
-                    case "Part::GeomCone":
-                        return cls.compare_plane_cone(f1.Surface, f2.Surface)
-                    case _:
-                        return False
-            case "Part::GeomCylinder":
-                match f2.Surface.TypeId:
-                    case "Part::GeomPlane":
-                        return cls.compare_plane_cylinder(f2.Surface, f1.Surface)
-                    case "Part::GeomCylinder":
-                        return cls.compare_cylinder_cylinder(f1.Surface, f2.Surface)
-                    case "Part::GeomToroid":
-                        return cls.compare_cylinder_torus(f1.Surface, f2.Surface)
-                    case "Part::GeomSphere":
-                        return cls.compare_cylinder_sphere(f1.Surface, f2.Surface)
-                    case "Part::GeomSurfaceOfExtrusion":
-                        return False
-                    case "Part::GeomCone":
-                        return cls.compare_cylinder_cone(f1.Surface, f2.Surface)
-                    case _:
-                        return False
-            case "Part::GeomToroid":
-                match f2.Surface.TypeId:
-                    case "Part::GeomPlane":
-                        return cls.compare_plane_torus(f2.Surface, f1.Surface)
-                    case "Part::GeomCylinder":
-                        return cls.compare_cylinder_torus(f2.Surface, f1.Surface)
-                    case "Part::GeomToroid":
-                        return cls.compare_torus_torus(f1.Surface, f2.Surface)
-                    case "Part::GeomSphere":
-                        return cls.compare_sphere_torus(f2.Surface, f1.Surface)
-                    case "Part::GeomSurfaceOfExtrusion":
-                        return False
-                    case "Part::GeomCone":
-                        return cls.compare_torus_cone(f1.Surface, f2.Surface)
-                    case _:
-                        return False
-            case "Part::GeomSphere":
-                match f2.Surface.TypeId:
-                    case "Part::GeomPlane":
-                        return cls.compare_plane_sphere(f2.Surface, f1.Surface)
-                    case "Part::GeomCylinder":
-                        return cls.compare_cylinder_sphere(f2.Surface, f1.Surface)
-                    case "Part::GeomToroid":
-                        return cls.compare_sphere_torus(f1.Surface, f2.Surface)
-                    case "Part::GeomSphere":
-                        return cls.compare_sphere_sphere(f1.Surface, f2.Surface)
-                    case "Part::GeomSurfaceOfExtrusion":
-                        return False
-                    case "Part::GeomCone":
-                        return cls.compare_sphere_cone(f1.Surface, f2.Surface)
-                    case _:
-                        return False
-            case "Part::GeomSurfaceOfExtrusion":
-                match f2.Surface.TypeId:
-                    case "Part::GeomPlane":
-                        return False
-                    case "Part::GeomCylinder":
-                        return False
-                    case "Part::GeomToroid":
-                        return False
-                    case "Part::GeomSphere":
-                        return False
-                    case "Part::GeomSurfaceOfExtrusion":
-                        return False
-                    case "Part::GeomCone":
-                        return False
-                    case _:
-                        return False
-            case "Part::GeomCone":
-                match f2.Surface.TypeId:
-                    case "Part::GeomPlane":
-                        return cls.compare_plane_cone(f2.Surface, f1.Surface)
-                    case "Part::GeomCylinder":
-                        return cls.compare_cylinder_cone(f2.Surface, f1.Surface)
-                    case "Part::GeomToroid":
-                        return cls.compare_torus_cone(f2.Surface, f1.Surface)
-                    case "Part::GeomSphere":
-                        return cls.compare_sphere_cone(f2.Surface, f1.Surface)
-                    case "Part::GeomSurfaceOfExtrusion":
-                        return False
-                    case "Part::GeomCone":
-                        return cls.compare_cone_cone(f1.Surface, f2.Surface)
-                    case _:
-                        return False
+        match type1, type2:
+            # plane
+            case "Part::GeomPlane", "Part::GeomPlane":
+                return cls.compare_plane_plane(f1, f2)
+            case "Part::GeomPlane", "Part::GeomCylinder":
+                return cls.compare_plane_cylinder(f1, f2)
+            case "Part::GeomPlane", "Part::GeomToroid":
+                return cls.compare_plane_torus(f1, f2)
+            case "Part::GeomPlane", "Part::GeomSphere":
+                return cls.compare_plane_sphere(f1, f2)
+            case "Part::GeomPlane", "Part::GeomSurfaceOfExtrusion":
+                return cls.compare_plane_extrusion(f1, f2)
+            case "Part::GeomPlane", "Part::GeomCone":
+                return cls.compare_plane_cone(f1, f2)
+            # cylinder
+            case "Part::GeomCylinder", "Part::GeomCylinder":
+                return cls.compare_cylinder_cylinder(f1, f2)
+            case "Part::GeomCylinder", "Part::GeomToroid":
+                return cls.compare_cylinder_torus(f1, f2)
+            case "Part::GeomCylinder", "Part::GeomSphere":
+                return cls.compare_cylinder_sphere(f1, f2)
+            case "Part::GeomCylinder", "Part::GeomSurfaceOfExtrusion":
+                return cls.compare_cylinder_extrusion(f1, f2)
+            case "Part::GeomCylinder", "Part::GeomCone":
+                return cls.compare_cylinder_cone(f1, f2)
+            # torus
+            case "Part::GeomToroid", "Part::GeomToroid":
+                return cls.compare_torus_torus(f1, f2)
+            case "Part::GeomToroid", "Part::GeomSphere":
+                return cls.compare_torus_sphere(f1, f2)
+            case "Part::GeomToroid", "Part::SurfaceOfExtrusion":
+                return cls.compare_torus_extrusion(f1, f2)
+            case "Part::GeomToroid", "Part::GeomCone":
+                return cls.compare_torus_cone(f1, f2)
+            # sphere
+            case "Part::GeomSphere", "Part::GeomSphere":
+                return cls.compare_sphere_sphere(f1, f2)
+            case "Part::GeomSphere", "Part.GeomSurfaceOfExtrusion":
+                return cls.compare_sphere_extrusion(f1, f2)
+            case "Part::GeomSphere", "Part.GeomCone":
+                return cls.compare_sphere_cone(f1, f2)
+            # extrusion
+            case "Part::GeomSurfaceOfExtrusion", "Part::GeomSurfaceOfExtrusion":
+                return cls.compare_extrusion_extrusion(f1, f2)
+            case "Part::GeomSurfaceOfExtrusion", "Part::GeomCone":
+                return cls.compare_extrusion_cone(f1, f2)
+            # cone
+            case "Part::GeomCone", "Part::GeomCone":
+                return cls.compare_cone_cone(f1, f2)
+            # all other cases
             case _:
                 return False
 
@@ -614,13 +614,18 @@ def build_graph_of_tangent_faces(shp: Part.Shape, root: int) -> nx.Graph:
 
 
 def _calculate_bend_allowance(
-    bend_direction: BendDirection, radius: float, k_factor: float, thickness: float, bend_angle: float
+    bend_direction: BendDirection,
+    radius: float,
+    k_factor: float,
+    thickness: float,
+    bend_angle: float,
 ) -> float:
     factor = k_factor
     if bend_direction == BendDirection.DOWN:
         factor -= 1
     bend_allowance = (radius + factor * thickness) * bend_angle
     return bend_allowance
+
 
 def unroll_cylinder(
     cylindrical_face: Part.Face, refpos: UVRef, k_factor: float, thickness: float
@@ -632,7 +637,9 @@ def unroll_cylinder(
     bend_angle = umax - umin
     radius = cylindrical_face.Surface.Radius
     bend_direction = BendDirection.from_face(cylindrical_face)
-    bend_allowance = _calculate_bend_allowance(bend_direction, radius, k_factor, thickness, bend_angle)
+    bend_allowance = _calculate_bend_allowance(
+        bend_direction, radius, k_factor, thickness, bend_angle
+    )
     overall_height = abs(vmax - vmin)
     y_scale_factor = bend_allowance / bend_angle
     flattened_edges = []
@@ -785,7 +792,9 @@ def compute_unbend_transform(
     # the actual unbend transformation is found by reversing the rotation of
     # a flat face after the bend due to the bending operation,
     # then pushing it forward according to the bend allowance
-    bend_allowance = _calculate_bend_allowance(bend_direction, radius, k_factor, thickness, bend_angle)
+    bend_allowance = _calculate_bend_allowance(
+        bend_direction, radius, k_factor, thickness, bend_angle
+    )
     # fmt: off
     allowance_transform = Matrix(
         1, 0, 0, 0,
