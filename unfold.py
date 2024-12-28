@@ -25,7 +25,7 @@
 from enum import Enum, auto
 from functools import reduce
 from itertools import combinations
-from math import degrees, log10, pi, radians
+from math import degrees, log10, pi, radians, sin, tan
 from operator import mul as multiply_operator
 from statistics import StatisticsError, mode
 from typing import Self
@@ -137,6 +137,21 @@ class TangentFaces:
     compare_x_x function automatically,"""
 
     @staticmethod
+    def intersection_between_two_lines(
+        base1: Vector, dir1: Vector, base2: Vector, dir2: Vector
+    ) -> tuple[float, Vector]:
+        # dir1, dir2 = Direction vector
+        # base1, base2 = Point where the line passes through
+        n = dir1.cross(dir2).normalize()
+        d = n.dot(base1 - base2)
+        t1 = base2.cross(n).dot(base2 - base1) / n.dot(n)
+        t2 = base1.cross(n).dot(base2 - base1) / n.dot(n)
+        p1 = base1 + t1 * dir1
+        p2 = base2 + t2 * dir2
+        best_midpoint = p1 + 0.5 * (p2 - p1)
+        return d, best_midpoint
+
+    @staticmethod
     def compare_plane_plane(p1: Part.Plane, p2: Part.Plane) -> bool:
         # returns True if the two planes have similar normals and the base
         # point of the first plane is (nearly) coincident with the second plane
@@ -212,12 +227,120 @@ class TangentFaces:
         return abs(abs(s.Center.distanceToPlane(p.Position, p.Axis)) - s.Radius) < eps
 
     @staticmethod
+    def compare_sphere_torus(s: Part.Sphere, t: Part.Toroid) -> bool:
+        return (
+            s.Center.distanceToPoint(t.Center) < eps
+            and (
+                abs(t.MajorRadius - t.MinorRadius - s.Radius) < eps
+                or abs(t.MajorRadius + t.MinorRadius - s.Radius) < eps
+            )
+        ) or (
+            abs(s.Radius - t.MinorRadius) < eps
+            and t.Axis.isNormal(s.Center - t.Center, eps_angular)
+            and abs(t.Center.distanceToPoint(s.Center) - t.MajorRadius) < eps
+        )
+
+    @staticmethod
+    def compare_torus_torus(t1: Part.Toroid, t2: Part.Toroid) -> bool:
+        if (  # case 1: concentric or identical torii
+            t1.Center.distanceToPoint(t2.Center) < eps
+            and t1.Axis.isParallel(t2.Axis, eps_angular)
+            and (
+                abs(t1.MajorRadius + t1.MinorRadius + t2.MinorRadius - t2.MajorRadius)
+                < eps
+                or abs(
+                    t2.MajorRadius + t2.MinorRadius + t1.MinorRadius - t1.MajorRadius
+                )
+                < eps
+                or (
+                    abs(t1.MajorRadius - t2.MajorRadius) < eps
+                    and abs(t2.MinorRadius - t2.MinorRadius) < eps
+                )
+            )
+        ):
+            return True
+        # case 2: axially aligned with tangent center circles
+        if (
+            t1.Axis.isParallel(t2.Axis, eps_angular)
+            and abs(
+                t1.Center.distanceToPoint(t2.Center)
+                - t1.MajorRadius
+                - t2.MajorRadius
+                - t1.MinorRadius
+                - t2.MinorRadius
+            )
+            < eps
+            and abs(t1.MinorRadius - t2.MinorRadius) < eps
+        ):
+            return True
+        # There's another possible case where the centerlines are tangent
+        # check the radii are equal then use compare_cone_cone!
+        if abs(t2.MinorRadius - t2.MinorRadius) < eps:
+            dist, midpoint = TangentFaces.intersection_between_two_lines(
+                t1.Center, t1.Axis, t2.Center, t2.Axis
+            )
+            if dist < eps:
+                # possible tangent
+                return False  # TODO
+        return False
+
+    @staticmethod
     def compare_cylinder_sphere(c: Part.Cylinder, s: Part.Sphere) -> bool:
         # the sphere must be sized/positioned like a ball sliding down a tube
         # with no wiggle room
         return (
             s.Center.distanceToLine(c.Center, c.Axis) < eps
             and abs(s.Radius - c.Radius) < eps
+        )
+
+    @staticmethod
+    def compare_plane_cone(p: Part.Plane, cn: Part.Cone) -> bool:
+        return cn.Apex.distanceToPlane(p.Position, p.Axis) < eps and (
+            abs(cn.Axis.getAngle(p.Axis) / 2 - cn.SemiAngle) < eps_angular
+            or abs((-1 * cn.Axis).getAngle(p.Axis) / 2 - cn.SemiAngle) < eps_angular
+        )
+
+    @staticmethod
+    def compare_cone_cone(cn1: Part.Cone, cn2: Part.Cone) -> bool:
+        return (
+            cn1.Apex.distanceToPoint(cn2.Apex) < eps
+            and abs(cn1.Axis.getAngle(cn2.Axis) - cn1.SemiAngle - cn2.SemiAngle)
+            < eps_angular
+        )
+
+    @staticmethod
+    def compare_sphere_cone(s: Part.Sphere, cn: Part.Cone) -> bool:
+        return (
+            s.Center.distanceToLine(cn.Apex, cn.Axis) < eps
+            and (cn.Apex.distanceToPoint(s.Center) * sin(cn.SemiAngle) - s.Radius) < eps
+        )
+
+    @staticmethod
+    def compare_cylinder_cone(c: Part.Cylinder, cn: Part.Cone) -> bool:
+        return abs(cn.Apex.distanceToLine(c.Center, c.Axis) - c.Radius) < eps and (
+            abs(c.Axis.getAngle(cn.Axis) - cn.SemiAngle) < eps_angular
+            or abs(pi - c.Axis.getAngle(cn.Axis) - cn.SemiAngle) < eps_angular
+        )
+
+    @staticmethod
+    def compare_torus_cone(t: Part.Toroid, cn: Part.Cone) -> bool:
+        return (
+            t.Axis.isParallel(cn.Axis, eps_angular)
+            and cn.Apex.distanceToLine(t.Center, t.Axis) < eps
+            and (
+                abs(
+                    t.MajorRadius / tan(cn.SemiAngle)
+                    - t.MinorRadius / sin(cn.SemiAngle)
+                    - cn.Apex.distanceToPoint(t.Center)
+                )
+                < eps
+                or abs(
+                    t.MajorRadius / tan(cn.SemiAngle)
+                    + t.MinorRadius / sin(cn.SemiAngle)
+                    - cn.Apex.distanceToPoint(t.Center)
+                )
+                < eps
+            )
         )
 
     @staticmethod
@@ -237,7 +360,7 @@ class TangentFaces:
                     case "Part::GeomSurfaceOfExtrusion":
                         return False
                     case "Part::GeomCone":
-                        return False
+                        return cls.compare_plane_cone(f1.Surface, f2.Surface)
                     case _:
                         return False
             case "Part::GeomCylinder":
@@ -247,13 +370,13 @@ class TangentFaces:
                     case "Part::GeomCylinder":
                         return cls.compare_cylinder_cylinder(f1.Surface, f2.Surface)
                     case "Part::GeomToroid":
-                        return False
+                        return cls.compare_cylinder_torus(f1.Surface, f2.Surface)
                     case "Part::GeomSphere":
                         return cls.compare_cylinder_sphere(f1.Surface, f2.Surface)
                     case "Part::GeomSurfaceOfExtrusion":
                         return False
                     case "Part::GeomCone":
-                        return False
+                        return cls.compare_cylinder_cone(f1.Surface, f2.Surface)
                     case _:
                         return False
             case "Part::GeomToroid":
@@ -263,13 +386,13 @@ class TangentFaces:
                     case "Part::GeomCylinder":
                         return cls.compare_cylinder_torus(f2.Surface, f1.Surface)
                     case "Part::GeomToroid":
-                        return False
+                        return cls.compare_torus_torus(f1.Surface, f2.Surface)
                     case "Part::GeomSphere":
-                        return False
+                        return cls.compare_sphere_torus(f2.Surface, f1.Surface)
                     case "Part::GeomSurfaceOfExtrusion":
                         return False
                     case "Part::GeomCone":
-                        return False
+                        return cls.compare_torus_cone(f1.Surface, f2.Surface)
                     case _:
                         return False
             case "Part::GeomSphere":
@@ -279,13 +402,13 @@ class TangentFaces:
                     case "Part::GeomCylinder":
                         return cls.compare_cylinder_sphere(f2.Surface, f1.Surface)
                     case "Part::GeomToroid":
-                        return False
+                        return cls.compare_sphere_torus(f1.Surface, f2.Surface)
                     case "Part::GeomSphere":
                         return cls.compare_sphere_sphere(f1.Surface, f2.Surface)
                     case "Part::GeomSurfaceOfExtrusion":
                         return False
                     case "Part::GeomCone":
-                        return False
+                        return cls.compare_sphere_cone(f1.Surface, f2.Surface)
                     case _:
                         return False
             case "Part::GeomSurfaceOfExtrusion":
@@ -307,17 +430,17 @@ class TangentFaces:
             case "Part::GeomCone":
                 match f2.Surface.TypeId:
                     case "Part::GeomPlane":
-                        return False
+                        return cls.compare_plane_cone(f2.Surface, f1.Surface)
                     case "Part::GeomCylinder":
-                        return False
+                        return cls.compare_cylinder_cone(f2.Surface, f1.Surface)
                     case "Part::GeomToroid":
-                        return False
+                        return cls.compare_torus_cone(f2.Surface, f1.Surface)
                     case "Part::GeomSphere":
-                        return False
+                        return cls.compare_sphere_cone(f2.Surface, f1.Surface)
                     case "Part::GeomSurfaceOfExtrusion":
                         return False
                     case "Part::GeomCone":
-                        return False
+                        return cls.compare_cone_cone(f1.Surface, f2.Surface)
                     case _:
                         return False
             case _:
