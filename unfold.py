@@ -616,6 +616,15 @@ def build_graph_of_tangent_faces(shp: Part.Shape, root: int) -> nx.Graph:
     raise RuntimeError(errmsg)
 
 
+def _calculate_bend_allowance(
+    bend_direction: BendDirection, radius: float, k_factor: float, thickness: float, bend_angle: float
+) -> float:
+    factor = k_factor
+    if bend_direction == BendDirection.DOWN:
+        factor -= 1
+    bend_allowance = (radius + factor * thickness) * bend_angle
+    return bend_allowance
+
 def unroll_cylinder(
     cylindrical_face: Part.Face, refpos: UVRef, k_factor: float, thickness: float
 ) -> tuple[Part.Face, Part.Edge]:
@@ -626,10 +635,7 @@ def unroll_cylinder(
     bend_angle = umax - umin
     radius = cylindrical_face.Surface.Radius
     bend_direction = BendDirection.from_face(cylindrical_face)
-    if bend_direction == BendDirection.UP:
-        bend_allowance = (radius + k_factor * thickness) * bend_angle
-    else:
-        bend_allowance = (radius - thickness * (1 - k_factor)) * bend_angle
+    bend_allowance = _calculate_bend_allowance(bend_direction, radius, k_factor, thickness, bend_angle)
     overall_height = abs(vmax - vmin)
     y_scale_factor = bend_allowance / bend_angle
     flattened_edges = []
@@ -782,10 +788,7 @@ def compute_unbend_transform(
     # the actual unbend transformation is found by reversing the rotation of
     # a flat face after the bend due to the bending operation,
     # then pushing it forward according to the bend allowance
-    if bend_direction == BendDirection.UP:
-        bend_allowance = (radius + k_factor * thickness) * bend_angle
-    else:
-        bend_allowance = (radius - thickness * (1 - k_factor)) * bend_angle
+    bend_allowance = _calculate_bend_allowance(bend_direction, radius, k_factor, thickness, bend_angle)
     # fmt: off
     allowance_transform = Matrix(
         1, 0, 0, 0,
