@@ -132,7 +132,7 @@ class EstimateThickness:
 class TangentFaces:
     """This class provides functions to check if brep faces are tangent to
     each other. each compare_x_x function accepts two surfaces of a
-    particular type, and returns a boolean value indiciating tangency.
+    particular type, and returns a boolean value indicating tangency.
     The compare function accepts two faces and selects the correct
     compare_x_x function automatically,"""
 
@@ -435,7 +435,7 @@ class SketchExtraction:
     def move_to_origin(sketch: Part.Compound, root_face: Part.Face) -> Matrix:
         """Given a 2d shape and a reference face, compute a transformation matrix
         that aligns the shape's bounding box to the origin of the XY-plane, with
-        the reference face oriented Z-up and rotated sqaure to the global
+        the reference face oriented Z-up and rotated square to the global
         coordinate system."""
         # find the orientation of the root face that aligns
         # the U-direction with the x-axis
@@ -827,7 +827,7 @@ def unfold(
 
 def gui_unfold() -> None:
     """This is the main entry-point for the unfolder.
-    It grabs a selected sheet metal part and reference face fro mteh active
+    It grabs a selected sheet metal part and reference face from the active
     FreeCAD document, and creates new objects showing the unfold results."""
     # the user must select a single flat face of a sheet metal part in the
     # active document
@@ -851,7 +851,7 @@ def gui_unfold() -> None:
     unfold_doc_obj = Part.show(unfolded_shape, selected_object.Label + "_Unfold")
     unfold_vobj = unfold_doc_obj.ViewObject
     unfold_doc_obj.Placement = Placement(object_placement)
-    # set apperance
+    # set appearance
     unfold_vobj.ShapeAppearance = selected_object.ViewObject.ShapeAppearance
     unfold_vobj.Transparency = 70
     # organize the unfold sketch layers in a group
