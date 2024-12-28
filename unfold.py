@@ -292,13 +292,16 @@ class TangentFaces:
         return (
             s.Center.distanceToLine(c.Center, c.Axis) < eps
             and abs(s.Radius - c.Radius) < eps
+        ) or (
+            # point contact case
+            abs(s.Center.distanceToLine(c.Center, c.Axis) - s.Radius - c.Radius) < eps
         )
 
     @staticmethod
     def compare_plane_cone(p: Part.Plane, cn: Part.Cone) -> bool:
-        return cn.Apex.distanceToPlane(p.Position, p.Axis) < eps and (
-            abs(cn.Axis.getAngle(p.Axis) / 2 - cn.SemiAngle) < eps_angular
-            or abs((-1 * cn.Axis).getAngle(p.Axis) / 2 - cn.SemiAngle) < eps_angular
+        return abs(cn.Apex.distanceToPlane(p.Position, p.Axis)) < eps and (
+            abs(cn.Axis.getAngle(p.Axis) - abs(cn.SemiAngle) - pi / 2) < eps_angular
+            or abs(cn.Axis.getAngle(p.Axis) + abs(cn.SemiAngle) - pi / 2) < eps_angular
         )
 
     @staticmethod
@@ -393,9 +396,9 @@ class TangentFaces:
             and order.index(type1) > order.index(type2)
         )
         if needs_swap:
-            s2, s1 = s1 = s2
+            s2, s1 = s1, s2
         cls = TangentFaces
-        match type1, type2:
+        match s1.TypeId, s2.TypeId:
             # plane
             case "Part::GeomPlane", "Part::GeomPlane":
                 return cls.compare_plane_plane(s1, s2)

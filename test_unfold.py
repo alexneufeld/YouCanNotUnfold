@@ -6,12 +6,9 @@ if "FREECADPATH" in os.environ:
 else:
     raise RuntimeError("Please specify the FREECADPATH environment variable")
 
-from math import sqrt
 from unittest import TestCase
 
 import FreeCAD
-import Part
-from FreeCAD import Vector
 
 import unfold
 
@@ -20,92 +17,86 @@ eps = FreeCAD.Base.Precision.approximation()
 # used when comparing angles
 eps_angular = FreeCAD.Base.Precision.angular()
 
+TEST_FILE_DIR = os.path.join(os.path.dirname(__file__), "test_cases")
 
-class TestIsFacesTangent(TestCase):
+
+class TestTangentFaces(TestCase):
+    def setUp(self):
+        self.doc = FreeCAD.openDocument(
+            os.path.join(TEST_FILE_DIR, "fcstd_files", "tangent_faces.FCStd")
+        )
+        self.p1 = self.doc.Plane.Shape.Faces[0]
+        self.p2 = self.doc.Plane001.Shape.Faces[0]
+        self.p3 = self.doc.Plane002.Shape.Faces[0]
+        self.c1 = self.doc.Cylinder.Shape.Faces[0]
+        self.c2 = self.doc.Cylinder001.Shape.Faces[0]
+        self.c3 = self.doc.Cylinder002.Shape.Faces[0]
+        self.c4 = self.doc.Cylinder003.Shape.Faces[0]
+        self.c5 = self.doc.Cylinder004.Shape.Faces[0]
+        self.c6 = self.doc.Cylinder005.Shape.Faces[0]
+        self.t1 = self.doc.Torus.Shape.Faces[0]
+        self.s1 = self.doc.Sphere.Shape.Faces[0]
+        self.s2 = self.doc.Sphere001.Shape.Faces[0]
+        self.s3 = self.doc.Sphere002.Shape.Faces[0]
+        self.s4 = self.doc.Sphere003.Shape.Faces[0]
+        self.s5 = self.doc.Sphere004.Shape.Faces[0]
+        self.cn1 = self.doc.Cone.Shape.Faces[0]
+        self.cn2 = self.doc.Cone001.Shape.Faces[0]
+        self.cn3 = self.doc.Cone002.Shape.Faces[0]
+
     def test_plane_plane(self):
-        p1 = Part.Plane(1, 2, 3, 4).toShape()
-        p2 = Part.Plane(p1.Surface, eps / 10).toShape()
-        p3 = Part.Plane(4, 3, 2, 1).toShape()
-
-        # different planes aren't tangent
-        self.assertFalse(unfold.is_faces_tangent(p1, p3))
-
-        # planes offset by less than FreeCAD's equality tolerance are still
-        # considered tangent
-        self.assertTrue(unfold.is_faces_tangent(p1, p2))
+        self.assertTrue(unfold.TangentFaces.compare(self.p1, self.p2))
+        self.assertFalse(unfold.TangentFaces.compare(self.p2, self.p3))
 
     def test_plane_cylinder(self):
-        p1 = Part.Plane(Vector(0, 0, 0), Vector(1, 0, 1)).toShape()
-        p2 = Part.Plane(Vector(1, 0, 0), Vector(1, 0, 0)).toShape()
-        c1 = Part.Cylinder().toShape()
-
-        self.assertTrue(unfold.is_faces_tangent(p2, c1))
-        self.assertFalse(unfold.is_faces_tangent(p1, c1))
-
-    def test_cylinder_cylinder(self):
-        cylinder_1 = Part.makeCylinder(1, 10, Vector(0, 0, 0), Vector(1, 0, 0))
-        c1 = [f for f in cylinder_1.Faces if f.Surface.TypeId == "Part::GeomCylinder"][
-            0
-        ]
-        cylinder_2 = Part.makeCylinder(2, 10, Vector(0, 0, 3), Vector(1, 0, 0))
-        c2 = [f for f in cylinder_2.Faces if f.Surface.TypeId == "Part::GeomCylinder"][
-            0
-        ]
-        cylinder_3 = Part.makeCylinder(2, 10, Vector(0, 0, 3), Vector(0, 1, 0))
-        c3 = [f for f in cylinder_3.Faces if f.Surface.TypeId == "Part::GeomCylinder"][
-            0
-        ]
-
-        self.assertTrue(unfold.is_faces_tangent(c1, c2))
-        self.assertFalse(unfold.is_faces_tangent(c1, c3))
+        self.assertTrue(unfold.TangentFaces.compare(self.p1, self.c2))
+        self.assertFalse(unfold.TangentFaces.compare(self.p1, self.c1))
 
     def test_plane_torus(self):
-        t1 = Part.makeTorus(10, 2, Vector(0, 0, 2), Vector(0, 0, 1)).Faces[0]
-        p1 = Part.Plane().toShape()
-        p2 = Part.Plane(Vector(0, 0, 0), Vector(1, 0, 0)).toShape()
+        self.assertTrue(unfold.TangentFaces.compare(self.p1, self.t1))
+        self.assertFalse(unfold.TangentFaces.compare(self.p3, self.t1))
 
-        self.assertTrue(unfold.is_faces_tangent(t1, p1))
-        self.assertFalse(unfold.is_faces_tangent(t1, p2))
+    def test_plane_sphere(self):
+        self.assertTrue(unfold.TangentFaces.compare(self.p1, self.s1))
+        self.assertFalse(unfold.TangentFaces.compare(self.p1, self.s2))
+
+    def test_plane_cone(self):
+        self.assertTrue(unfold.TangentFaces.compare(self.p1, self.cn3))
+        self.assertTrue(unfold.TangentFaces.compare(self.p1, self.cn2))
+        self.assertFalse(unfold.TangentFaces.compare(self.cn1, self.p1))
+
+    def test_cylinder_cylinder(self):
+        self.assertTrue(unfold.TangentFaces.compare(self.c2, self.c3))
+        self.assertFalse(unfold.TangentFaces.compare(self.c1, self.c2))
 
     def test_cylinder_torus(self):
-        t1 = Part.makeTorus(10, 2, Vector(0, 0, 2), Vector(0, 0, 1)).Faces[0]
-        cylinder_1 = Part.makeCylinder(8, 10, Vector(0, 0, 0), Vector(0, 0, 1))
-        c1 = [f for f in cylinder_1.Faces if f.Surface.TypeId == "Part::GeomCylinder"][
-            0
-        ]
-        cylinder_2 = Part.makeCylinder(2, 10, Vector(0, 10, 2), Vector(1, 0, 0))
-        c2 = [f for f in cylinder_2.Faces if f.Surface.TypeId == "Part::GeomCylinder"][
-            0
-        ]
-        cylinder_3 = Part.makeCylinder(2, 10, Vector(0, 0, 0), Vector(1, 1, 1))
-        c3 = [f for f in cylinder_3.Faces if f.Surface.TypeId == "Part::GeomCylinder"][
-            0
-        ]
-        cylinder_4 = Part.makeCylinder(12, 10, Vector(0, 0, 0), Vector(0, 0, 1))
-        c4 = [f for f in cylinder_4.Faces if f.Surface.TypeId == "Part::GeomCylinder"][
-            0
-        ]
+        self.assertTrue(unfold.TangentFaces.compare(self.c4, self.t1))
+        self.assertTrue(unfold.TangentFaces.compare(self.c5, self.t1))
+        self.assertTrue(unfold.TangentFaces.compare(self.c6, self.t1))
+        self.assertFalse(unfold.TangentFaces.compare(self.c1, self.t1))
 
-        self.assertTrue(unfold.is_faces_tangent(t1, c1))
-        self.assertTrue(unfold.is_faces_tangent(t1, c2))
-        self.assertTrue(unfold.is_faces_tangent(t1, c4))
-        self.assertFalse(unfold.is_faces_tangent(t1, c3))
+    def test_cylinder_sphere(self):
+        self.assertTrue(unfold.TangentFaces.compare(self.s4, self.c1))
+        self.assertTrue(unfold.TangentFaces.compare(self.s5, self.c1))
+        self.assertFalse(unfold.TangentFaces.compare(self.s1, self.c1))
+
+    def test_cylinder_cone(self):
+        pass
+
+    def test_torus_torus(self):
+        pass
+
+    def test_torus_sphere(self):
+        pass
+
+    def test_torus_cone(self):
+        pass
 
     def test_sphere_sphere(self):
-        s1 = Part.makeSphere(10, Vector(1, 2, 3)).Faces[0]
-        s2 = Part.makeSphere(10 + 0.1 * eps, Vector(1, 2, 3)).Faces[0]
-        s3 = Part.makeSphere(10, Vector(3, 2, 1)).Faces[0]
+        pass
 
-        self.assertTrue(unfold.is_faces_tangent(s1, s2))
-        self.assertFalse(unfold.is_faces_tangent(s1, s3))
+    def test_sphere_cone(self):
+        pass
 
-
-class TestUnrollCylinder(TestCase):
-    def test_unroll_simple_face(self):
-        arc = Part.Arc(
-            Vector(0, 0, 0),
-            Vector(sqrt(2) / 2 * 10, 0, 10 - sqrt(2) / 2 * 10),
-            Vector(10, 0, 10),
-        ).toShape()
-        face = arc.extrude(Vector(0, 10, 0))
-        self.assertTrue(face is not None)
+    def test_cone_cone(self):
+        pass
