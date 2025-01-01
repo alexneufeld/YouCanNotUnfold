@@ -593,6 +593,19 @@ class BendAllowanceCalculator:
         # we use the ansi definition of the k-factor everywhere internally
         return self._convert_to_ansi_kfactor(kf_val)
 
+    def get_bend_allowance(
+        self,
+        bend_direction: BendDirection,
+        radius: float,
+        thickness: float,
+        bend_angle: float,
+    ) -> float:
+        factor = self.get_k_factor(radius, thickness)
+        if bend_direction == BendDirection.DOWN:
+            factor -= 1
+        bend_allowance = (radius + factor * thickness) * bend_angle
+        return bend_allowance
+
     class KFactorStandard(Enum):
         ANSI = auto()
         DIN = auto()
@@ -686,22 +699,11 @@ def build_graph_of_tangent_faces(shp: Part.Shape, root: int) -> nx.Graph:
     raise RuntimeError(errmsg)
 
 
-def _calculate_bend_allowance(
-    bend_direction: BendDirection,
-    radius: float,
-    k_factor: float,
-    thickness: float,
-    bend_angle: float,
-) -> float:
-    factor = k_factor
-    if bend_direction == BendDirection.DOWN:
-        factor -= 1
-    bend_allowance = (radius + factor * thickness) * bend_angle
-    return bend_allowance
-
-
 def unroll_cylinder(
-    cylindrical_face: Part.Face, refpos: UVRef, k_factor: float, thickness: float
+    cylindrical_face: Part.Face,
+    refpos: UVRef,
+    bac: BendAllowanceCalculator,
+    thickness: float,
 ) -> tuple[Part.Face, Part.Edge]:
     """Given a cylindrical face and a reference corner, computes a flattened
     version of the face oriented with respect to the +x,+y quadrant of the
@@ -710,8 +712,8 @@ def unroll_cylinder(
     bend_angle = umax - umin
     radius = cylindrical_face.Surface.Radius
     bend_direction = BendDirection.from_face(cylindrical_face)
-    bend_allowance = _calculate_bend_allowance(
-        bend_direction, radius, k_factor, thickness, bend_angle
+    bend_allowance = bac.get_bend_allowance(
+        bend_direction, radius, thickness, bend_angle
     )
     overall_height = abs(vmax - vmin)
     y_scale_factor = bend_allowance / bend_angle
@@ -792,7 +794,10 @@ def unroll_cylinder(
 
 
 def compute_unbend_transform(
-    bent_face: Part.Face, base_edge: Part.Edge, thickness: float, k_factor: float
+    bent_face: Part.Face,
+    base_edge: Part.Edge,
+    thickness: float,
+    bac: BendAllowanceCalculator,
 ) -> tuple[Matrix, Matrix, UVRef]:
     """Computes the position and orientation of a reference corner on a bent
     surface, as well as a transformation to flatten out subsequent faces to
@@ -865,8 +870,8 @@ def compute_unbend_transform(
     # the actual unbend transformation is found by reversing the rotation of
     # a flat face after the bend due to the bending operation,
     # then pushing it forward according to the bend allowance
-    bend_allowance = _calculate_bend_allowance(
-        bend_direction, radius, k_factor, thickness, bend_angle
+    bend_allowance = bac.get_bend_allowance(
+        bend_direction, radius, thickness, bend_angle
     )
     # fmt: off
     allowance_transform = Matrix(
@@ -896,7 +901,7 @@ def compute_unbend_transform(
 
 
 def unfold(
-    shape: Part.Shape, root_face_index: int, k_factor: int
+    shape: Part.Shape, root_face_index: int, bac: BendAllowanceCalculator
 ) -> tuple[Part.Shape, Part.Compound]:
     """Given a solid body of a sheet metal part and a reference face, computes
     a solid representation of the unbent object, as well as a compound object
@@ -963,15 +968,13 @@ def unfold(
             raise RuntimeError(errmsg)
         # compute the unbend transformation matrices.
         alignment_transform, overall_transform, uvref = compute_unbend_transform(
-            bend_part, edge_before_bend, thickness, k_factor
+            bend_part, edge_before_bend, thickness, bac
         )
         # Determine the unbent face shape from the reference UV position.
         # Also get a bend line across the middle of the flattened face.
         dg.nodes[e[1]]["unbend_transform"] = overall_transform
         try:
-            unbent_face, bend_line = unroll_cylinder(
-                bend_part, uvref, k_factor, thickness
-            )
+            unbent_face, bend_line = unroll_cylinder(bend_part, uvref, bac, thickness)
             # Add the transformation and unbend shape to the end node of the edge
             # as attributes.
             dg.nodes[e[1]]["unbent_shape"] = unbent_face.transformed(
@@ -1042,7 +1045,8 @@ def gui_unfold() -> None:
     object_placement = selected_object.getGlobalPlacement().toMatrix()
     shp = selected_object.Shape.transformed(object_placement.inverse())
     root_face_index = int(selection.SubElementNames[0][4:]) - 1
-    unfolded_shape, bend_lines = unfold(shp, root_face_index, k_factor=0.5)
+    bac = BendAllowanceCalculator.from_single_value(0.5)
+    unfolded_shape, bend_lines = unfold(shp, root_face_index, bac)
     root_normal = shp.Faces[root_face_index].normalAt(0, 0)
     sketch_profile, inner_wires, hole_wires = SketchExtraction.extract_manually(
         unfolded_shape, root_normal

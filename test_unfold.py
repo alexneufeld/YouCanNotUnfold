@@ -140,7 +140,7 @@ class TestBendAllowanceCalculator(TestCase):
 
 class TestSimpleObjectUnfolding(TestCase):
     def setUp(self):
-        pass
+        self.bac = unfold.BendAllowanceCalculator.from_single_value(0.5)
 
     @skip("improve error when nothing needs to be unfolded?")
     def test_flat_plate(self):
@@ -149,7 +149,7 @@ class TestSimpleObjectUnfolding(TestCase):
         )
         shp = Part.Shape()
         shp.read(test_file)
-        unfolded_solid, bend_lines = unfold.unfold(shp, 5, 0.5)
+        unfolded_solid, bend_lines = unfold.unfold(shp, 5, self.bac)
         self.assertFalse(unfolded_solid.isNull())
         # a simple flat plate has no bend lines when 'unfolded'
         self.assertTrue(bend_lines.isNull())
@@ -160,7 +160,7 @@ class TestSimpleObjectUnfolding(TestCase):
         )
         shp = Part.Shape()
         shp.read(test_file)
-        unfolded_solid, bend_lines = unfold.unfold(shp, 3, 0.5)
+        unfolded_solid, bend_lines = unfold.unfold(shp, 3, self.bac)
         self.assertFalse(unfolded_solid.isNull())
         self.assertFalse(bend_lines.isNull())
 
@@ -170,7 +170,7 @@ class TestSimpleObjectUnfolding(TestCase):
         )
         shp = Part.Shape()
         shp.read(test_file)
-        unfolded_solid, bend_lines = unfold.unfold(shp, 1, 0.5)
+        unfolded_solid, bend_lines = unfold.unfold(shp, 1, self.bac)
         self.assertFalse(unfolded_solid.isNull())
         self.assertFalse(bend_lines.isNull())
 
@@ -180,7 +180,7 @@ class TestSimpleObjectUnfolding(TestCase):
         )
         shp = Part.Shape()
         shp.read(test_file)
-        unfolded_solid, bend_lines = unfold.unfold(shp, 8, 0.5)
+        unfolded_solid, bend_lines = unfold.unfold(shp, 8, self.bac)
         self.assertFalse(unfolded_solid.isNull())
         self.assertFalse(bend_lines.isNull())
 
@@ -190,7 +190,7 @@ class TestSimpleObjectUnfolding(TestCase):
         )
         shp = Part.Shape()
         shp.read(test_file)
-        unfolded_solid, bend_lines = unfold.unfold(shp, 1, 0.5)
+        unfolded_solid, bend_lines = unfold.unfold(shp, 1, self.bac)
         self.assertFalse(unfolded_solid.isNull())
         self.assertFalse(bend_lines.isNull())
 
@@ -200,7 +200,7 @@ class TestSimpleObjectUnfolding(TestCase):
         )
         shp = Part.Shape()
         shp.read(test_file)
-        unfolded_solid, bend_lines = unfold.unfold(shp, 1, 0.5)
+        unfolded_solid, bend_lines = unfold.unfold(shp, 1, self.bac)
         self.assertFalse(unfolded_solid.isNull())
         self.assertFalse(bend_lines.isNull())
 
@@ -210,7 +210,7 @@ class TestSimpleObjectUnfolding(TestCase):
         )
         shp = Part.Shape()
         shp.read(test_file)
-        unfolded_solid, bend_lines = unfold.unfold(shp, 1, 0.5)
+        unfolded_solid, bend_lines = unfold.unfold(shp, 1, self.bac)
         self.assertFalse(unfolded_solid.isNull())
         self.assertFalse(bend_lines.isNull())
 
@@ -220,6 +220,6 @@ class TestSimpleObjectUnfolding(TestCase):
         )
         shp = Part.Shape()
         shp.read(test_file)
-        unfolded_solid, bend_lines = unfold.unfold(shp, 6, 0.5)
+        unfolded_solid, bend_lines = unfold.unfold(shp, 6, self.bac)
         self.assertFalse(unfolded_solid.isNull())
         self.assertFalse(bend_lines.isNull())
