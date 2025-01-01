@@ -6,9 +6,10 @@ if "FREECADPATH" in os.environ:
 else:
     raise RuntimeError("Please specify the FREECADPATH environment variable")
 
-from unittest import TestCase
+from unittest import TestCase, skip
 
 import FreeCAD
+import Part
 
 import unfold
 
@@ -135,3 +136,90 @@ class TestBendAllowanceCalculator(TestCase):
         allowance_calculator = unfold.BendAllowanceCalculator.from_single_value(0.50)
         self.assertEqual(allowance_calculator.get_k_factor(1.0, 999.0), 0.50)
         self.assertEqual(allowance_calculator.get_k_factor(999.0, 1.0), 0.50)
+
+
+class TestSimpleObjectUnfolding(TestCase):
+    def setUp(self):
+        pass
+
+    @skip("improve error when nothing needs to be unfolded?")
+    def test_flat_plate(self):
+        test_file = os.path.join(
+            TEST_FILE_DIR, "simple_features", "001_flat_plate.step"
+        )
+        shp = Part.Shape()
+        shp.read(test_file)
+        unfolded_solid, bend_lines = unfold.unfold(shp, 5, 0.5)
+        self.assertFalse(unfolded_solid.isNull())
+        # a simple flat plate has no bend lines when 'unfolded'
+        self.assertTrue(bend_lines.isNull())
+
+    def test_single_bend(self):
+        test_file = os.path.join(
+            TEST_FILE_DIR, "simple_features", "002_single_bend.step"
+        )
+        shp = Part.Shape()
+        shp.read(test_file)
+        unfolded_solid, bend_lines = unfold.unfold(shp, 3, 0.5)
+        self.assertFalse(unfolded_solid.isNull())
+        self.assertFalse(bend_lines.isNull())
+
+    def test_single_hem(self):
+        test_file = os.path.join(
+            TEST_FILE_DIR, "simple_features", "003_single_hem.step"
+        )
+        shp = Part.Shape()
+        shp.read(test_file)
+        unfolded_solid, bend_lines = unfold.unfold(shp, 1, 0.5)
+        self.assertFalse(unfolded_solid.isNull())
+        self.assertFalse(bend_lines.isNull())
+
+    def test_joggle_bend(self):
+        test_file = os.path.join(
+            TEST_FILE_DIR, "simple_features", "004_joggle_bend.step"
+        )
+        shp = Part.Shape()
+        shp.read(test_file)
+        unfolded_solid, bend_lines = unfold.unfold(shp, 8, 0.5)
+        self.assertFalse(unfolded_solid.isNull())
+        self.assertFalse(bend_lines.isNull())
+
+    def test_corner_bend(self):
+        test_file = os.path.join(
+            TEST_FILE_DIR, "simple_features", "005_corner_bend.step"
+        )
+        shp = Part.Shape()
+        shp.read(test_file)
+        unfolded_solid, bend_lines = unfold.unfold(shp, 1, 0.5)
+        self.assertFalse(unfolded_solid.isNull())
+        self.assertFalse(bend_lines.isNull())
+
+    def test_corner_bend_with_relief(self):
+        test_file = os.path.join(
+            TEST_FILE_DIR, "simple_features", "006_corner_bend_with_relief.step"
+        )
+        shp = Part.Shape()
+        shp.read(test_file)
+        unfolded_solid, bend_lines = unfold.unfold(shp, 1, 0.5)
+        self.assertFalse(unfolded_solid.isNull())
+        self.assertFalse(bend_lines.isNull())
+
+    def test_single_bend_refined(self):
+        test_file = os.path.join(
+            TEST_FILE_DIR, "simple_features", "007_single_bend_refined.step"
+        )
+        shp = Part.Shape()
+        shp.read(test_file)
+        unfolded_solid, bend_lines = unfold.unfold(shp, 1, 0.5)
+        self.assertFalse(unfolded_solid.isNull())
+        self.assertFalse(bend_lines.isNull())
+
+    def test_box_with_closed_corners(self):
+        test_file = os.path.join(
+            TEST_FILE_DIR, "simple_features", "007_single_bend_refined.step"
+        )
+        shp = Part.Shape()
+        shp.read(test_file)
+        unfolded_solid, bend_lines = unfold.unfold(shp, 6, 0.5)
+        self.assertFalse(unfolded_solid.isNull())
+        self.assertFalse(bend_lines.isNull())
