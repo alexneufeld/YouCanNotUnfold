@@ -243,47 +243,16 @@ class TangentFaces:
 
     @staticmethod
     def compare_torus_torus(t1: Part.Toroid, t2: Part.Toroid) -> bool:
-        if (  # case 1: concentric or identical torii
-            t1.Center.distanceToPoint(t2.Center) < eps
+        return (
+            t1.Center.distanceToLine(t2.Center, t2.Axis) < eps
             and t1.Axis.isParallel(t2.Axis, eps_angular)
-            and (
-                abs(t1.MajorRadius + t1.MinorRadius + t2.MinorRadius - t2.MajorRadius)
-                < eps
-                or abs(
-                    t2.MajorRadius + t2.MinorRadius + t1.MinorRadius - t1.MajorRadius
-                )
-                < eps
-                or (
-                    abs(t1.MajorRadius - t2.MajorRadius) < eps
-                    and abs(t2.MinorRadius - t2.MinorRadius) < eps
-                )
-            )
-        ):
-            return True
-        # case 2: axially aligned with tangent center circles
-        if (
-            t1.Axis.isParallel(t2.Axis, eps_angular)
             and abs(
-                t1.Center.distanceToPoint(t2.Center)
-                - t1.MajorRadius
-                - t2.MajorRadius
-                - t1.MinorRadius
-                - t2.MinorRadius
+                t1.Center.distanceToPoint(t2.Center) ** 2
+                + (t1.MajorRadius - t2.MajorRadius) ** 2
+                - (t1.MinorRadius + t2.MinorRadius) ** 2
             )
             < eps
-            and abs(t1.MinorRadius - t2.MinorRadius) < eps
-        ):
-            return True
-        # There's another possible case where the centerlines are tangent
-        # check the radii are equal then use compare_cone_cone!
-        if abs(t2.MinorRadius - t2.MinorRadius) < eps:
-            dist, midpoint = TangentFaces.intersection_between_two_lines(
-                t1.Center, t1.Axis, t2.Center, t2.Axis
-            )
-            if dist < eps:
-                # possible tangent
-                return False  # TODO
-        return False
+        )
 
     @staticmethod
     def compare_cylinder_sphere(c: Part.Cylinder, s: Part.Sphere) -> bool:
@@ -323,7 +292,7 @@ class TangentFaces:
     def compare_cylinder_cone(c: Part.Cylinder, cn: Part.Cone) -> bool:
         return abs(cn.Apex.distanceToLine(c.Center, c.Axis) - c.Radius) < eps and (
             abs(c.Axis.getAngle(cn.Axis) - cn.SemiAngle) < eps_angular
-            or abs(pi - c.Axis.getAngle(cn.Axis) - cn.SemiAngle) < eps_angular
+            or abs(pi - c.Axis.getAngle(cn.Axis) - abs(cn.SemiAngle)) < eps_angular
         )
 
     @staticmethod

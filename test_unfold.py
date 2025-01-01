@@ -34,7 +34,11 @@ class TestTangentFaces(TestCase):
         self.c4 = self.doc.Cylinder003.Shape.Faces[0]
         self.c5 = self.doc.Cylinder004.Shape.Faces[0]
         self.c6 = self.doc.Cylinder005.Shape.Faces[0]
+        self.c7 = self.doc.Cylinder006.Shape.Faces[0]
         self.t1 = self.doc.Torus.Shape.Faces[0]
+        self.t2 = self.doc.Torus001.Shape.Faces[0]
+        self.t3 = self.doc.Torus002.Shape.Faces[0]
+        self.t4 = self.doc.Torus003.Shape.Faces[0]
         self.s1 = self.doc.Sphere.Shape.Faces[0]
         self.s2 = self.doc.Sphere001.Shape.Faces[0]
         self.s3 = self.doc.Sphere002.Shape.Faces[0]
@@ -43,6 +47,7 @@ class TestTangentFaces(TestCase):
         self.cn1 = self.doc.Cone.Shape.Faces[0]
         self.cn2 = self.doc.Cone001.Shape.Faces[0]
         self.cn3 = self.doc.Cone002.Shape.Faces[0]
+        self.cn4 = self.doc.Cone003.Shape.Faces[0]
 
     def test_plane_plane(self):
         self.assertTrue(unfold.TangentFaces.compare(self.p1, self.p2))
@@ -81,10 +86,15 @@ class TestTangentFaces(TestCase):
         self.assertFalse(unfold.TangentFaces.compare(self.s1, self.c1))
 
     def test_cylinder_cone(self):
-        pass
+        self.assertTrue(unfold.TangentFaces.compare(self.c7, self.cn2))
+        self.assertTrue(unfold.TangentFaces.compare(self.c7, self.cn3))
+        self.assertTrue(unfold.TangentFaces.compare(self.c7, self.cn3))
+        self.assertFalse(unfold.TangentFaces.compare(self.c1, self.cn2))
 
     def test_torus_torus(self):
-        pass
+        self.assertTrue(unfold.TangentFaces.compare(self.t1, self.t2))
+        self.assertTrue(unfold.TangentFaces.compare(self.t1, self.t3))
+        self.assertFalse(unfold.TangentFaces.compare(self.t3, self.t4))
 
     def test_torus_sphere(self):
         pass
