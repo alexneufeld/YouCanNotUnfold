@@ -550,6 +550,105 @@ class SketchExtraction:
         return overall_transform
 
 
+class BendAllowanceCalculator:
+    def __init__(self) -> None:
+        self.k_factor_standard = None
+        self.radius_thickness_values = None
+        self.k_factor_values = None
+
+    @classmethod
+    def from_single_value(cls, k_factor: float) -> Self:
+        """one k-factor for all radius:thickness ratios"""
+        instance = cls()
+        instance.k_factor_standard = cls.KFactorStandard.ANSI
+        instance.radius_thickness_values = [
+            1.0,
+        ]
+        instance.k_factor_values = [
+            k_factor,
+        ]
+        return instance
+
+    def get_k_factor(self, radius: float, thickness: float) -> float:
+        # if we are below the lowest tabulated value for the radius over
+        # thickness relation, return the smallest noted k-factor
+        r_over_t = radius / thickness
+        if r_over_t <= self.radius_thickness_values[0]:
+            kf_val = self.k_factor_values[0]
+        # apply similar logic to radius:thickness values greater than
+        # the largest available
+        elif r_over_t >= self.radius_thickness_values[-1]:
+            kf_val = self.k_factor_values[-1]
+        # if we are within the range of specified radius:thickness values,
+        # perform piecewise linear interpolation
+        else:
+            i = 0
+            while r_over_t <= self.radius_thickness_values[i]:
+                i += 1
+            kf1 = self.k_factor_values[i]
+            kf2 = self.k_factor_values[i + 1]
+            rt1 = self.radius_thickness_values[i]
+            rt2 = self.radius_thickness_values[i + 1]
+            kf_val = kf1 + (kf2 - kf1) * ((r_over_t - rt1) / (rt2 - rt1))
+        # we use the ansi definition of the k-factor everywhere internally
+        return self._convert_to_ansi_kfactor(kf_val)
+
+    class KFactorStandard(Enum):
+        ANSI = auto()
+        DIN = auto()
+
+    @classmethod
+    def from_spreadsheet(cls, sheet: FreeCAD.DocumentObject) -> Self:
+        instance = cls()
+        r_t_header = sheet.getContents("A1")
+        r_t_header = "".join(c for c in r_t_header if c not in "' ").lower()
+        if r_t_header != "radius/thickness":
+            errmsg = (
+                "Cell A1 of material definition sheet must "
+                'be exactly "Radius/Thickness"'
+            )
+            raise ValueError(errmsg)
+        kf_header = sheet.getContents("B1")
+        kf_header = "".join(c for c in kf_header if c not in "' -()").lower()
+        if kf_header == "kfactoransi":
+            instance.k_factor_standard = cls.KFactorStandard.ANSI
+        elif kf_header == "kfactordin":
+            instance.k_factor_standard = cls.KFactorStandard.DIN
+        else:
+            errmsg = (
+                "Cell B1 of material definition sheet must be "
+                'one of "K-factor (ANSI)" or "K-factor (DIN)"'
+            )
+            raise ValueError(errmsg)
+        # read cells from the A column until we get to an empty cell
+        number_of_columns = 0
+        radius_thickness_list = []
+        k_factor_list = []
+        while next_rt_value := sheet.getContents("A" + str(number_of_columns + 2)):
+            number_of_columns += 1
+            radius_thickness_list.append(float(next_rt_value))
+        # read corresponding k-factor values from the B column
+        # and throw an error if we find an empty cell too early
+        for i in range(number_of_columns):
+            next_kf_value = sheet.getContents("B" + str(i + 2))
+            if not next_kf_value:
+                errmsg = (
+                    "material definition sheet has an empty "
+                    f"cell in the K-factors column (cell B{i+2})"
+                )
+                raise ValueError(errmsg)
+            k_factor_list.append(float(next_kf_value))
+        instance.radius_thickness_values = radius_thickness_list
+        instance.k_factor_values = k_factor_list
+        return instance
+
+    def _convert_to_ansi_kfactor(self, k_factor: float) -> float:
+        if self.k_factor_standard == self.KFactorStandard.DIN:
+            return 2 * k_factor
+        else:
+            return k_factor
+
+
 def build_graph_of_tangent_faces(shp: Part.Shape, root: int) -> nx.Graph:
     # created a simple undirected graph object
     graph_of_shape_faces = nx.Graph()

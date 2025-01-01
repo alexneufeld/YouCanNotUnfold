@@ -110,3 +110,28 @@ class TestTangentFaces(TestCase):
 
     def test_cone_cone(self):
         pass
+
+
+class TestBendAllowanceCalculator(TestCase):
+    def setUp(self):
+        test_file = os.path.join(
+            TEST_FILE_DIR, "fcstd_files", "material_definition_sheets.FCStd"
+        )
+        self.doc = FreeCAD.openDocument(test_file)
+
+    def test_from_spreadsheet(self):
+        sheet = self.doc.Spreadsheet
+        allowance_calculator = unfold.BendAllowanceCalculator.from_spreadsheet(sheet)
+        self.assertEqual(allowance_calculator.radius_thickness_values, [1.0, 3.0, 99.0])
+        self.assertEqual(allowance_calculator.k_factor_values, [0.38, 0.43, 0.50])
+        self.assertEqual(allowance_calculator.get_k_factor(2.0, 2.0), 0.38)
+        self.assertEqual(allowance_calculator.get_k_factor(2.0, 99.0), 0.38)
+        self.assertEqual(allowance_calculator.get_k_factor(999.0, 1.0), 0.50)
+        self.assertAlmostEqual(
+            allowance_calculator.get_k_factor(2.0, 1.0), 0.38 + 0.5 * (0.43 - 0.38)
+        )
+
+    def test_constant_value(self):
+        allowance_calculator = unfold.BendAllowanceCalculator.from_single_value(0.50)
+        self.assertEqual(allowance_calculator.get_k_factor(1.0, 999.0), 0.50)
+        self.assertEqual(allowance_calculator.get_k_factor(999.0, 1.0), 0.50)
