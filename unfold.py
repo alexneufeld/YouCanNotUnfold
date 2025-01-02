@@ -22,6 +22,7 @@
 #
 ###################################################################################
 
+import os
 from enum import Enum, auto
 from functools import reduce
 from itertools import combinations
@@ -31,10 +32,16 @@ from statistics import StatisticsError, mode
 from typing import Self
 
 import FreeCAD
+import FreeCADGui
 import Part
 from Draft import makeSketch
 from FreeCAD import Matrix, Placement, Rotation, Vector
 from TechDraw import projectEx as project_shape_to_plane
+
+try:
+    from PySide import QtCore, QtGui
+except ImportError:
+    from PySide2 import QtCore, QtGui
 
 try:
     import networkx as nx
@@ -1102,5 +1109,288 @@ def gui_unfold() -> None:
         grp.addObject(hole_lines_doc_obj)
 
 
+class UnfoldTaskPanel:
+    # default values for parameters
+    DEFAULT_SKETCH_COLOR = "#0055ff"
+    DEFAULT_BEND_LINE_COLOR = "#ff0000"
+    DEFAULT_INTERNAL_FEATURE_COLOR = "#ffff00"
+    DEFAULT_HOLE_COLOR = "#55ff00"
+    DEFAULT_OPACITY = 70
+    DEFAULT_EXPORT_ENABLED = False
+    DEFAULT_EXPORT_FORMAT = "dxf"
+    DEFAULT_K_FACTOR_STANDARD = "ansi"
+    DEFAULT_MANUAL_K_FACTOR = 0.5
+    DEFAULT_SEPERATE_SKETCHES = False
+    DEFAULT_GENERATE_SKETCH = False
+    DEFAULT_USE_MATERIAL_DEFSHEET = False
+
+    class SinglePlanarFaceSelectionGate:
+        def __init__(self):
+            pass
+
+        def allow(self, doc, obj, sub):
+            return (
+                sub.split(".")[-1].startswith("Face")
+                and len(FreeCADGui.Selection.getCompleteSelection()) < 1
+                and obj.Shape.getElement(sub).Surface.TypeId == "Part::GeomPlane"
+            )
+
+    class SimpleSelectionObserver(QtCore.QObject):
+        selection = QtCore.Signal(str)
+        clear = QtCore.Signal()
+
+        def __init__(self):
+            super().__init__()
+
+        def addSelection(self, doc, obj, sub, pnt):
+            self.selection.emit(obj + "." + sub)
+
+        def clearSelection(self, doc):
+            self.clear.emit()
+
+    @classmethod
+    def ensure_parameters(cls) -> None:
+        pg = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/SheetMetal")
+        known_keys = [x[1] for x in pg.GetContents()]
+        if "genColor" not in known_keys:
+            pg.SetString("genColor", cls.DEFAULT_SKETCH_COLOR)
+        if "internalColor" not in known_keys:
+            pg.SetString("internalColor", cls.DEFAULT_INTERNAL_FEATURE_COLOR)
+        if "bendColor" not in known_keys:
+            pg.SetString("bendColor", cls.DEFAULT_BEND_LINE_COLOR)
+        if "holeColor" not in known_keys:
+            pg.SetString("holeColor", cls.DEFAULT_HOLE_COLOR)
+        if "seperateSketches" not in known_keys:
+            pg.SetBool("seperateSketches", cls.DEFAULT_SEPERATE_SKETCHES)
+        if "exportEn" not in known_keys:
+            pg.SetBool("exportEn", cls.DEFAULT_EXPORT_ENABLED)
+        if "exportType" not in known_keys:
+            pg.SetString("exportType", cls.DEFAULT_EXPORT_FORMAT)
+        if "kFactorStandard" not in known_keys:
+            pg.SetString("kFactorStandard", cls.DEFAULT_K_FACTOR_STANDARD)
+        if "manualKFactor" not in known_keys:
+            pg.SetFloat("manualKFactor", cls.DEFAULT_MANUAL_K_FACTOR)
+        if "genObjTransparency" not in known_keys:
+            pg.SetInt("genObjTransparency", cls.DEFAULT_OPACITY)
+        if "genSketch" not in known_keys:
+            pg.SetBool("genSketch", cls.DEFAULT_GENERATE_SKETCH)
+        if "useMaterialDefSheet" not in known_keys:
+            pg.SetBool("useMaterialDefSheet", cls.DEFAULT_USE_MATERIAL_DEFSHEET)
+
+    def __init__(self):
+        self.doc = FreeCAD.ActiveDocument
+        self.guidoc = FreeCADGui.ActiveDocument
+        uiPath = os.path.join(
+            os.path.dirname(os.path.realpath(__file__)), "TaskUnfoldParameters.ui"
+        )
+        loader = FreeCADGui.UiLoader()
+        self.form = loader.load(uiPath)
+        self.ensure_parameters()
+        self.pg = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/SheetMetal")
+        self.setupUI()
+        self.doc.openTransaction("Unfold sheet metal part")
+        # set up selection behaviour changes
+        # clear the selection if the user doesn't have exactly a single face selected
+        old_selection = FreeCADGui.Selection.getCompleteSelection()
+        if (
+            len(old_selection) != 1
+            or not old_selection[0].HasSubObjects
+            or len(old_selection[0].SubElementNames) != 1
+            or not old_selection[0].SubElementNames[0].startswith("Face")
+        ):
+            FreeCADGui.Selection.clearSelection()
+        # add selection gate - one face only!
+        FreeCADGui.Selection.addSelectionGate(
+            self.SinglePlanarFaceSelectionGate(),
+            FreeCADGui.Selection.ResolveMode.NoResolve,
+        )
+        self.selectionObserver = self.SimpleSelectionObserver()
+        self.selectionObserver.selection.connect(self.referenceSelected)
+        self.selectionObserver.clear.connect(self.referenceCleared)
+        FreeCADGui.Selection.addObserver(self.selectionObserver)
+
+    def setupUI(self):
+        # set window title and icon
+        self.form.setWindowTitle("Unfold sheet metal part")
+        iconpath = os.path.join(
+            os.path.dirname(os.path.realpath(__file__)), "SheetMetal_Unfold.svg"
+        )
+        self.form.setWindowIcon(QtGui.QIcon(iconpath))
+        # connect signals and slots
+        self.form.generateProjectionSketchCheckBox.toggled.connect(
+            self.generate_sketch_toggled
+        )
+        self.form.seperateSketchLayersCheckBox.toggled.connect(
+            self.seperate_sketch_layers_toggled
+        )
+        self.form.kFactorModeComboBox.currentIndexChanged.connect(
+            self.k_factor_mode_changed
+        )
+        self.form.manualKFactorStandardsComboBox.currentIndexChanged.connect(
+            self.manual_k_factor_standard_changed
+        )
+        self.form.projectionSketchColorButton.changed.connect(
+            self.projection_sketch_color_changed
+        )
+        self.form.internalFeaturesColorButton.changed.connect(
+            self.projection_internal_features_color_changed
+        )
+        self.form.bendLinesColorButton.changed.connect(
+            self.projection_bend_lines_color_changed
+        )
+        self.form.holesColorButton.changed.connect(self.projection_holes_color_changed)
+        self.form.exportSVGCheckBox.toggled.connect(self.export_svg_button_toggled)
+        self.form.exportDXFCheckBox.toggled.connect(self.export_dxf_button_toggled)
+        self.form.unfoldedShapeTransparencySpinBox.valueChanged.connect(
+            self.transparency_value_changed
+        )
+        # set initial state according to saved parameters
+        if sel := FreeCADGui.Selection.getCompleteSelection():
+            self.referenceSelected(sel[0].Object.Name + "." + sel[0].SubElementNames[0])
+        self.form.seperateSketchLayersCheckBox.setChecked(
+            self.pg.GetBool("separateSketches")
+        )
+        self.seperate_sketch_layers_toggled(self.pg.GetBool("separateSketches"))
+        self.form.generateProjectionSketchCheckBox.setChecked(
+            self.pg.GetBool("genSketch")
+        )
+        self.generate_sketch_toggled(self.pg.GetBool("genSketch"))
+        self.form.kFactorModeComboBox.setCurrentIndex(
+            1 if self.pg.GetBool("useMaterialDefSheet") else 0
+        )
+        self.k_factor_mode_changed(1 if self.pg.GetBool("useMaterialDefSheet") else 0)
+        self.form.manualKFactorStandardsComboBox.setCurrentIndex(
+            0 if self.pg.GetString("kFactorStandard") == "ansi" else 1
+        )
+        self.form.projectionSketchColorButton.setProperty(
+            "color", self.pg.GetString("genColor")
+        )
+        self.form.internalFeaturesColorButton.setProperty(
+            "color", self.pg.GetString("internalColor")
+        )
+        self.form.bendLinesColorButton.setProperty(
+            "color", self.pg.GetString("bendColor")
+        )
+        self.form.holesColorButton.setProperty("color", self.pg.GetString("holeColor"))
+        if self.pg.GetString("exportType") == "svg" and self.pg.GetBool("exportEn"):
+            self.form.exportSVGCheckBox.setChecked(True)
+            self.form.exportDXFCheckBox.setChecked(False)
+        elif self.pg.GetString("exportType") == "dxf" and self.pg.GetBool("exportEn"):
+            self.form.exportSVGCheckBox.setChecked(False)
+            self.form.exportDXFCheckBox.setChecked(True)
+        else:
+            self.form.exportSVGCheckBox.setChecked(False)
+            self.form.exportDXFCheckBox.setChecked(False)
+        self.form.unfoldedShapeTransparencySpinBox.setValue(
+            self.pg.GetInt("genObjTransparency")
+        )
+
+    def generate_sketch_toggled(self, checked):
+        self.form.projectionSketchOptionsWidget.setVisible(checked)
+        self.pg.SetBool("genSketch", checked)
+
+    def seperate_sketch_layers_toggled(self, checked):
+        self.form.internalfeaturesColorWidget.setVisible(checked)
+        self.form.holesColorWidget.setVisible(checked)
+        self.pg.SetBool("separateSketches", checked)
+
+    def k_factor_mode_changed(self, index):
+        self.form.manualKFactorOptionsWidget.setVisible(index == 0)
+        self.form.materialDefinitionSheetWidget.setVisible(index == 1)
+        self.pg.SetBool("useMaterialDefSheet", index == 1)
+
+    def manual_k_factor_standard_changed(self, index):
+        if index == 0:
+            # ANSI mode
+            self.pg.SetString("kFactorStandard", "ansi")
+            self.form.manualKFactorSpinBox.setRange(0.0, 1.0)
+        else:
+            # DIN mode
+            self.pg.SetString("kFactorStandard", "din")
+            self.form.manualKFactorSpinBox.setRange(0.0, 2.0)
+
+    def projection_sketch_color_changed(self):
+        self.pg.SetString(
+            "genColor", self.form.projectionSketchColorButton.property("color").name()
+        )
+
+    def projection_internal_features_color_changed(self):
+        self.pg.SetString(
+            "internalColor",
+            self.form.internalFeaturesColorButton.property("color").name(),
+        )
+
+    def projection_bend_lines_color_changed(self):
+        self.pg.SetString(
+            "bendColor", self.form.bendLinesColorButton.property("color").name()
+        )
+
+    def projection_holes_color_changed(self):
+        self.pg.SetString(
+            "holeColor", self.form.holesColorButton.property("color").name()
+        )
+
+    def export_svg_button_toggled(self, checked):
+        if checked:
+            self.form.exportDXFCheckBox.setChecked(False)
+            self.pg.SetString("exportType", "svg")
+            self.pg.SetBool("exportEn", True)
+        elif not self.form.exportDXFCheckBox.isChecked():
+            self.pg.SetBool("exportEn", False)
+
+    def export_dxf_button_toggled(self, checked):
+        if checked:
+            self.form.exportSVGCheckBox.setChecked(False)
+            self.pg.SetString("exportType", "dxf")
+            self.pg.SetBool("exportEn", True)
+        elif not self.form.exportSVGCheckBox.isChecked():
+            self.pg.SetBool("exportEn", False)
+
+    def transparency_value_changed(self, value):
+        self.pg.SetInt("genObjTransparency", value)
+
+    def getStandardButtons(self):
+        return int(QtGui.QDialogButtonBox.Cancel | QtGui.QDialogButtonBox.Ok)
+
+    def accept(self):
+        # return early if nothing was selected
+        if not FreeCADGui.Selection.getCompleteSelection():
+            FreeCAD.Console.PrintUserError("No reference face selected to unfold from")
+            return
+        try:
+            gui_unfold()
+            exception_during_unfold = None
+        except Exception as E:
+            exception_during_unfold = E
+        FreeCADGui.Selection.removeSelectionGate()
+        self.doc.commitTransaction()
+        self.guidoc.resetEdit()
+        FreeCADGui.Control.closeDialog()
+        FreeCADGui.Selection.removeObserver(self.selectionObserver)
+        self.doc.recompute()
+        if exception_during_unfold:
+            FreeCAD.Console.PrintUserError("Error occured during unfold")
+            raise exception_during_unfold
+
+    def reject(self):
+        FreeCADGui.Selection.removeSelectionGate()
+        self.doc.abortTransaction()
+        FreeCADGui.Control.closeDialog()
+        FreeCADGui.Selection.removeObserver(self.selectionObserver)
+        self.doc.recompute()
+
+    def focusUiStart(self):
+        start_widget = self.form.kFactorModeComboBox
+        start_widget.setFocus()
+
+    def referenceSelected(self, text):
+        self.form.selectedGeometryLabel.setText("Selected: " + text)
+
+    def referenceCleared(self):
+        self.form.selectedGeometryLabel.setText("Selected: None")
+
+
 if __name__ == "__main__":
-    gui_unfold()
+    dialog = UnfoldTaskPanel()
+    FreeCADGui.Control.showDialog(dialog)
+    dialog.focusUiStart()
