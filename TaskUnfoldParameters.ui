@@ -264,7 +264,7 @@
        </widget>
       </item>
       <item>
-       <widget class="QCheckBox" name="seperateSketchLayersCheckBox">
+       <widget class="QCheckBox" name="separateSketchLayersCheckBox">
         <property name="text">
          <string>Seperate sketch layers</string>
         </property>
@@ -505,7 +505,7 @@
   <tabstop>materialDefinitionSheetsCombobox</tabstop>
   <tabstop>unfoldedShapeTransparencySpinBox</tabstop>
   <tabstop>generateProjectionSketchCheckBox</tabstop>
-  <tabstop>seperateSketchLayersCheckBox</tabstop>
+  <tabstop>separateSketchLayersCheckBox</tabstop>
   <tabstop>exportSVGCheckBox</tabstop>
   <tabstop>exportDXFCheckBox</tabstop>
   <tabstop>projectionSketchColorButton</tabstop>
