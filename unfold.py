@@ -970,15 +970,6 @@ def unfold(
             dg.add_edge(f1, f2, label=edata["label"])
         else:
             dg.add_edge(f2, f1, label=edata["label"])
-    try:
-        FreeCAD.Console.PrintLog(
-            "Network of tangent faces:\n" + str(nx.nx_pydot.to_pydot(dg))
-        )
-    except ModuleNotFoundError:
-        FreeCAD.Console.PrintLog(
-            "pydot not installed, debug-printing of face-graphs disabled.\n"
-            "https://networkx.org/documentation/stable/install.html#extra-packages\n"
-        )
     # the digraph should now have everything we need to unfold the shape,
     # For every edge f1--e1-->f2 where f2 is a cylindrical face, feed f1
     # through our unbending functions with e1 as the stationary edge.
