@@ -754,19 +754,10 @@ def unroll_cylinder(
     flattened_edges = []
     for e in cylindrical_face.Edges:
         edge_on_surface, e_param_min, e_param_max = cylindrical_face.curveOnSurface(e)
-        if isinstance(edge_on_surface, Part.Geom2d.Line2d):
+        if isinstance(edge_on_surface, (Part.Geom2d.Line2d, Part.Geom2d.Line2dSegment)):
             v1 = edge_on_surface.value(e_param_min)
             y1, x1 = v1.x - umin, v1.y - vmin
             v2 = edge_on_surface.value(e_param_max)
-            y2, x2 = v2.x - umin, v2.y - vmin
-            line = Part.makeLine(
-                Vector(x1, y1 * y_scale_factor), Vector(x2, y2 * y_scale_factor)
-            )
-            flattened_edges.append(line)
-        elif isinstance(edge_on_surface, Part.Geom2d.Line2dSegment):
-            v1 = edge_on_surface.StartPoint
-            y1, x1 = v1.x - umin, v1.y - vmin
-            v2 = edge_on_surface.EndPoint
             y2, x2 = v2.x - umin, v2.y - vmin
             line = Part.makeLine(
                 Vector(x1, y1 * y_scale_factor), Vector(x2, y2 * y_scale_factor)
