@@ -1039,18 +1039,7 @@ def unfold(
     # convert to 'directed tree', where every edge points away from the selected face
     dg = nx.DiGraph()
     for node in spanning_tree:
-        # color the nodes nicely (for debugging only)
-        dg.add_node(
-            node,
-            color={
-                "Part::GeomPlane": "red",
-                "Part::GeomCylinder": "blue",
-                "Part::GeomToroid": "purple",
-                "Part::GeomCone": "green",
-                "Part::GeomSurfaceOfExtrusion": "orange",
-                "Part::GeomSphere": "hotpink",
-            }[shape.Faces[node].Surface.TypeId],
-        )
+        dg.add_node(node)
     lengths = nx.all_pairs_shortest_path_length(spanning_tree)
     distances_to_root_face = {k: kv for k, kv in lengths}[root_face_index]
     for f1, f2, edata in spanning_tree.edges(data=True):
