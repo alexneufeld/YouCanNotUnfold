@@ -478,10 +478,11 @@ class SketchExtraction:
         Sketch document object. This allows the user to more easily make small
         changes to the sheet metal cutting pattern when prepping it
         for fabrication."""
+        cleaned_up_edges = Edge2DCleanup.cleanup_sketch(edges, 0.1)
         sk = makeSketch(
             # NOTE: in testing, using the autoconstraint feature
             # caused errors with some shapes
-            edges,
+            cleaned_up_edges,
             autoconstraints=False,
             addTo=None,
             delete=False,
@@ -696,6 +697,72 @@ class ColorUtils:
         return tuple(int(h[i : i + 2], 16) for i in (0, 2, 4))
 
 
+class Edge2DCleanup:
+    """Many sheet metal fabrication suppliers, as well as CAM systems and
+    laser cutting softwares, don't have good support for geometric
+    primitives other than lines and arcs. This class features tools to
+    replace bezier curves and other geometry types with lines and arcs"""
+
+    @staticmethod
+    def bspline_to_single_arc(curve: Part.Edge) -> tuple[Part.Edge, float]:
+        line = Part.makeLine(curve.firstVertex().Point, curve.lastVertex().Point)
+        max_err = Edge2DCleanup.check_err(curve, line)
+        return line, max_err
+
+    @staticmethod
+    def check_err(curve1: Part.Edge, curve2: Part.Edge) -> float:
+        n_points = 10
+        max_err = 0.00
+        for i in range(n_points):
+            curve1_parameter = curve1.FirstParameter + (
+                curve1.LastParameter - curve1.FirstParameter
+            ) * (i + 1) / (n_points + 1)
+            curve2_parameter = curve2.FirstParameter + (
+                curve2.LastParameter - curve2.FirstParameter
+            ) * (i + 1) / (n_points + 1)
+            err = curve1.valueAt(curve1_parameter).distanceToPoint(
+                curve2.valueAt(curve2_parameter)
+            )
+            if err > max_err:
+                max_err = err
+        return max_err
+
+    @staticmethod
+    def bspline_to_line(curve: Part.Edge) -> tuple[Part.Edge, float]:
+        point1 = curve.firstVertex().Point
+        point3 = curve.lastVertex().Point
+        point2 = curve.valueAt(
+            curve.FirstParameter + 0.5 * (curve.LastParameter - curve.FirstParameter)
+        )
+        arc = Part.Arc(point1, point2, point3).toShape().Edges[0]
+        max_err = Edge2DCleanup.check_err(curve, arc)
+        return arc, max_err
+
+    @staticmethod
+    def cleanup_sketch(sketch: list[Part.Edge], tolerance: float) -> list[Part.Edge]:
+        new_edge_list = []
+        for edge in sketch:
+            if isinstance(edge.Curve, (Part.Line, Part.Arc)):
+                new_edge_list.append(edge)
+            else:
+                if isinstance(edge.Curve, Part.BSplineCurve):
+                    bspline = edge
+                else:
+                    bspline = edge.toNurbs().Edges[0]
+                line, max_err = Edge2DCleanup.bspline_to_line(bspline)
+                if max_err < tolerance:
+                    new_edge_list.append(line)
+                    continue
+                arc, max_err = Edge2DCleanup.bspline_to_single_arc(bspline)
+                if max_err < tolerance:
+                    new_edge_list.append(line)
+                    continue
+                new_edge_list.extend(
+                    a.toShape().Edges[0] for a in bspline.Curve.toBiArcs(tolerance)
+                )
+        return new_edge_list
+
+
 def build_graph_of_tangent_faces(shp: Part.Shape, root: int) -> nx.Graph:
     # created a simple undirected graph object
     graph_of_shape_faces = nx.Graph()
@@ -738,7 +805,7 @@ def unroll_cylinder(
     refpos: UVRef,
     bac: BendAllowanceCalculator,
     thickness: float,
-) -> tuple[Part.Face, Part.Edge]:
+) -> tuple[Part.Face, Part.Shape]:
     """Given a cylindrical face and a reference corner, computes a flattened
     version of the face oriented with respect to the +x,+y quadrant of the
     2D plane."""
@@ -1106,7 +1173,7 @@ def gui_unfold(bac: BendAllowanceCalculator) -> None:
     if bend_lines.Edges:
         bend_lines = bend_lines.transformed(sketch_align_transform)
         bend_lines_doc_obj = SketchExtraction.edges_to_sketch_object(
-            bend_lines, selected_object.Label + "_UnfoldBendLines"
+            bend_lines.Edges, selected_object.Label + "_UnfoldBendLines"
         )
         bend_color = ColorUtils.hex_to_rgb(pg.GetString("bendColor"))
         bend_lines_doc_obj.ViewObject.LineColor = bend_color
@@ -1118,7 +1185,7 @@ def gui_unfold(bac: BendAllowanceCalculator) -> None:
     if inner_wires:
         inner_lines = Part.makeCompound(inner_wires).transformed(sketch_align_transform)
         inner_lines_doc_obj = SketchExtraction.edges_to_sketch_object(
-            inner_lines, selected_object.Label + "_UnfoldInnerLines"
+            inner_lines.Edges, selected_object.Label + "_UnfoldInnerLines"
         )
         inner_color = ColorUtils.hex_to_rgb(pg.GetString("internalColor"))
         inner_lines_doc_obj.ViewObject.LineColor = inner_color
@@ -1128,7 +1195,7 @@ def gui_unfold(bac: BendAllowanceCalculator) -> None:
     if hole_wires:
         hole_lines = Part.makeCompound(hole_wires).transformed(sketch_align_transform)
         hole_lines_doc_obj = SketchExtraction.edges_to_sketch_object(
-            hole_lines, selected_object.Label + "_UnfoldHoles"
+            hole_lines.Edges, selected_object.Label + "_UnfoldHoles"
         )
         hole_color = ColorUtils.hex_to_rgb(pg.GetString("holeColor"))
         hole_lines_doc_obj.ViewObject.LineColor = hole_color
