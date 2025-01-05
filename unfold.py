@@ -160,21 +160,6 @@ class TangentFaces:
     compare_x_x function automatically,"""
 
     @staticmethod
-    def intersection_between_two_lines(
-        base1: Vector, dir1: Vector, base2: Vector, dir2: Vector
-    ) -> tuple[float, Vector]:
-        # dir1, dir2 = Direction vector
-        # base1, base2 = Point where the line passes through
-        n = dir1.cross(dir2).normalize()
-        d = n.dot(base1 - base2)
-        t1 = base2.cross(n).dot(base2 - base1) / n.dot(n)
-        t2 = base1.cross(n).dot(base2 - base1) / n.dot(n)
-        p1 = base1 + t1 * dir1
-        p2 = base2 + t2 * dir2
-        best_midpoint = p1 + 0.5 * (p2 - p1)
-        return d, best_midpoint
-
-    @staticmethod
     def compare_plane_plane(p1: Part.Plane, p2: Part.Plane) -> bool:
         # returns True if the two planes have similar normals and the base
         # point of the first plane is (nearly) coincident with the second plane
