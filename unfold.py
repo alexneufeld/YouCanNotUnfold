@@ -129,10 +129,23 @@ class EstimateThickness:
         )
 
     @staticmethod
+    def from_user_input() -> float:
+        if not FreeCAD.GuiUp:
+            return None
+        num, ok = QtGui.QInputDialog().getDouble(
+            FreeCADGui.getMainWindow(), "Input sheet thicknes", "Thickness (mm):"
+        )
+        if not ok:
+            return None
+        return num
+
+    @staticmethod
     def using_best_method(shape: Part.Shape, selected_face: int) -> float:
         thickness = EstimateThickness.from_cylinders(shape)
         if not thickness:
             thickness = EstimateThickness.from_face(shape, selected_face)
+        if not thickness:
+            thickness = EstimateThickness.from_user_input()
         if not thickness:
             errmsg = "Couldn't estimate thickness for shape!"
             raise RuntimeError(errmsg)
