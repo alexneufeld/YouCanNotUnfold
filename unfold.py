@@ -709,8 +709,6 @@ class Edge2DCleanup:
             return Part.Edge(), float("inf")
         line = Part.makeLine(p1, p2)
         max_err = Edge2DCleanup.check_err(curve, line)
-        print(f"{max_err=}")
-        Part.show(line)
         return line, max_err
 
     @staticmethod
@@ -751,7 +749,6 @@ class Edge2DCleanup:
         else:
             # partial circle
             arc = Part.Arc(point1, point2, point3).toShape().Edges[0]
-            Part.show(curve)
         max_err = Edge2DCleanup.check_err(curve, arc)
         return arc, max_err
 
@@ -759,24 +756,25 @@ class Edge2DCleanup:
     def cleanup_sketch(sketch: list[Part.Edge], tolerance: float) -> list[Part.Edge]:
         new_edge_list = []
         for edge in sketch:
-            if isinstance(edge.Curve, (Part.Line, Part.Arc)):
-                new_edge_list.append(edge)
-            else:
-                if isinstance(edge.Curve, Part.BSplineCurve):
-                    bspline = edge
-                else:
-                    bspline = edge.toNurbs().Edges[0]
-                new_edge, max_err = Edge2DCleanup.bspline_to_line(bspline)
-                if max_err < tolerance:
-                    new_edge_list.append(new_edge)
-                    continue
-                new_edge, max_err = Edge2DCleanup.bspline_to_arc(bspline)
-                if max_err < tolerance:
-                    new_edge_list.append(new_edge)
-                    continue
-                new_edge_list.extend(
-                    a.toShape().Edges[0] for a in bspline.Curve.toBiArcs(tolerance)
-                )
+            match edge.Curve.TypeId:
+                case "Part::GeomLine" | "Part::GeomCircle":
+                    new_edge_list.append(edge)
+                case _:
+                    if isinstance(edge.Curve, Part.BSplineCurve):
+                        bspline = edge
+                    else:
+                        bspline = edge.toNurbs().Edges[0]
+                    new_edge, max_err = Edge2DCleanup.bspline_to_line(bspline)
+                    if max_err < tolerance:
+                        new_edge_list.append(new_edge)
+                        continue
+                    new_edge, max_err = Edge2DCleanup.bspline_to_arc(bspline)
+                    if max_err < tolerance:
+                        new_edge_list.append(new_edge)
+                        continue
+                    new_edge_list.extend(
+                        a.toShape().Edges[0] for a in bspline.Curve.toBiArcs(tolerance)
+                    )
         return new_edge_list
 
 
